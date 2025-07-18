@@ -1,0 +1,42 @@
+# Source files (only ship compiled JS)
+src/
+tests/
+
+# Config files
+tsconfig.json
+.eslintrc.json
+.prettierrc
+
+# Environment and logs
+.env
+.env.*
+*.log
+
+# Development files
+*.test.ts
+*.test.js
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git files
+.git/
+.gitignore
+
+# Documentation source
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
