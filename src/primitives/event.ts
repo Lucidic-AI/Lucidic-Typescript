@@ -22,7 +22,7 @@ export class Event {
     this.sessionId = sessionId;
     this.stepId = config.stepId;
     this.eventId = config.eventId || uuidv4();
-    this.description = config.description;
+    this.description = config.description || '';
     this.result = config.result;
     this.model = config.model;
     this.screenshots = config.screenshots;
@@ -64,7 +64,8 @@ export class Event {
     result?: string,
     isFinished?: boolean,
     costAdded?: number,
-    model?: string
+    model?: string,
+    description?: string
   ): Promise<void> {
     try {
       await this.client.updateEvent(
@@ -72,7 +73,8 @@ export class Event {
         result,
         isFinished,
         costAdded,
-        model
+        model,
+        description
       );
 
       // Update local state
@@ -80,6 +82,7 @@ export class Event {
       if (isFinished !== undefined) this.isFinished = isFinished;
       if (costAdded !== undefined) this.costAdded = costAdded;
       if (model !== undefined) this.model = model;
+      if (description !== undefined) this.description = description;
 
       logger.debug(`Event updated: ${this.eventId}`);
     } catch (error) {

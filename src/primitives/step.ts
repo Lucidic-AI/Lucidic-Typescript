@@ -19,9 +19,9 @@ export class Step {
     this.client = client;
     this.sessionId = sessionId;
     this.stepId = config.stepId || uuidv4();
-    this.state = config.state;
-    this.action = config.action;
-    this.goal = config.goal;
+    this.state = config.state || '';
+    this.action = config.action || '';
+    this.goal = config.goal || '';
     this.isFinished = false;
     this.events = [];
   }

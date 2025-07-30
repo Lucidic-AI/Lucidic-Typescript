@@ -12,6 +12,7 @@ export interface LucidicConfig {
   maskingFunction?: (text: string) => string;
   apiUrl?: string;
   debug?: boolean;
+  autoEnd?: boolean;
 }
 
 export interface SessionConfig {
@@ -29,14 +30,34 @@ export interface SessionConfig {
 }
 
 export interface StepConfig {
-  state: string;
-  action: string;
-  goal: string;
+  state?: string;
+  action?: string;
+  goal?: string;
   stepId?: string;
+  evalScore?: number;
+  evalDescription?: string;
+}
+
+// Named parameters interfaces for function calls
+export interface CreateStepParams {
+  state?: string;
+  action?: string;
+  goal?: string;
+  evalScore?: number;
+  evalDescription?: string;
+}
+
+export interface EndStepParams {
+  stepId?: string;
+  state?: string;
+  action?: string;
+  goal?: string;
+  evalScore?: number;
+  evalDescription?: string;
 }
 
 export interface EventConfig {
-  description: string;
+  description?: string;
   result?: string;
   model?: string;
   screenshots?: string[];
@@ -45,6 +66,25 @@ export interface EventConfig {
   costAdded?: number;
   stepId?: string;
   eventId?: string;
+}
+
+// Named parameters interfaces for event functions
+export interface CreateEventParams {
+  stepId?: string;
+  description?: string;
+  result?: string;
+  costAdded?: number;
+  model?: string;
+  screenshots?: string[];
+}
+
+export interface UpdateEventParams {
+  eventId?: string;
+  description?: string;
+  result?: string;
+  costAdded?: number;
+  model?: string;
+  screenshots?: string[];
 }
 
 export interface APIResponse<T = any> {

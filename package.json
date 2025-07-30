@@ -1,6 +1,6 @@
 {
   "name": "lucidicai",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lucidic AI TypeScript SDK for LLM observability",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -25,7 +25,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Lucidic-AI/Lucidic-Typescript.git"
+    "url": "git+https://github.com/Lucidic-AI/Lucidic-Typescript.git"
   },
   "bugs": {
     "url": "https://github.com/Lucidic-AI/Lucidic-Typescript/issues"
