@@ -69,7 +69,7 @@ export class Session {
   /**
    * Create a new step
    */
-  public async createStep(config: StepConfig): Promise<Step> {
+  public async createStep(config: StepConfig = {}): Promise<Step> {
     // End active step if exists
     if (this.activeStep && !this.activeStep.isFinished) {
       await this.activeStep.end();
@@ -88,7 +88,7 @@ export class Session {
    * Create an event
    * If no active step exists, create a temporary one
    */
-  public async createEvent(config: EventConfig): Promise<Event> {
+  public async createEvent(config: EventConfig = {}): Promise<Event> {
     let stepId = config.stepId;
 
     // If no step ID and no active step, create a temporary step
@@ -102,6 +102,11 @@ export class Session {
       stepId = tempStep.stepId;
     } else if (!stepId && this.activeStep) {
       stepId = this.activeStep.stepId;
+    }
+    
+    // If event has no description, provide a default
+    if (!config.description) {
+      config = { ...config, description: 'Auto-created event' };
     }
 
     const event = new Event(this.client, this.sessionId, {
@@ -128,14 +133,15 @@ export class Session {
     result?: string,
     isFinished?: boolean,
     costAdded?: number,
-    model?: string
+    model?: string,
+    description?: string
   ): Promise<void> {
     const event = this.events.find(e => e.eventId === eventId);
     if (!event) {
       throw new SessionError(`Event ${eventId} not found in session`);
     }
 
-    await event.update(result, isFinished, costAdded, model);
+    await event.update(result, isFinished, costAdded, model, description);
   }
 
   /**
@@ -160,9 +166,12 @@ export class Session {
       return;
     }
 
-    // End active step if exists
-    if (this.activeStep && !this.activeStep.isFinished) {
-      await this.activeStep.end();
+    // Auto-end any unfinished steps
+    for (const step of this.steps) {
+      if (!step.isFinished) {
+        logger.debug(`Auto-ending unfinished step ${step.stepId}`);
+        await step.end(100, 'Step auto-ended on session end');
+      }
     }
 
     await this.updateSession(undefined, undefined, true, isSuccessful, reason);

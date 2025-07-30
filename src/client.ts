@@ -30,6 +30,7 @@ export class Client {
   private promptCache: Map<string, { prompt: string; timestamp: number }> = new Map();
   private readonly PROMPT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   private initialized: boolean = false;
+  public autoEnd: boolean = true;
 
   constructor(config?: LucidicConfig) {
     this.apiKey = config?.apiKey || process.env.LUCIDIC_API_KEY || '';
@@ -38,6 +39,16 @@ export class Client {
     this.apiUrl = API_BASE_URL;
     this.agentId = config?.agentId || process.env.LUCIDIC_AGENT_ID || '';
     this.maskingFunction = config?.maskingFunction || null;
+    
+    // Set autoEnd from config or environment variable (default true)
+    const envAutoEnd = process.env.LUCIDIC_AUTO_END;
+    if (config?.autoEnd !== undefined) {
+      this.autoEnd = config.autoEnd;
+    } else if (envAutoEnd !== undefined) {
+      this.autoEnd = envAutoEnd.toLowerCase() !== 'false';
+    } else {
+      this.autoEnd = true;
+    }
 
     if (!this.apiKey) {
       throw new ConfigurationError('API key is required. Set LUCIDIC_API_KEY environment variable or pass apiKey in config.');

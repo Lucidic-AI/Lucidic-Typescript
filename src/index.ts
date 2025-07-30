@@ -6,7 +6,11 @@ import {
   SessionConfig, 
   StepConfig, 
   EventConfig,
-  MassSimulationConfig 
+  MassSimulationConfig,
+  CreateStepParams,
+  EndStepParams,
+  CreateEventParams,
+  UpdateEventParams
 } from './types';
 import { Session } from './primitives/session';
 import { Step } from './primitives/step';
@@ -16,6 +20,92 @@ import { runWithTextStorage } from './telemetry/utils/textStorage';
 
 // Global client instance
 let globalClient: Client | null = null;
+
+// Track if exit handlers are registered
+let exitHandlersRegistered = false;
+
+/**
+ * Auto-end session on exit
+ */
+async function autoEndSession(): Promise<void> {
+  try {
+    if (globalClient && globalClient.autoEnd && globalClient.session && !globalClient.session.isFinished) {
+      logger.info('Auto-ending active session on exit');
+      await globalClient.session.endSession(true, 'Session auto-ended on exit');
+    }
+  } catch (error) {
+    logger.debug(`Error during auto-end session: ${error}`);
+  }
+}
+
+/**
+ * Cleanup telemetry
+ */
+async function cleanupTelemetry(): Promise<void> {
+  try {
+    const telemetry = LucidicTelemetry.getInstance();
+    if (telemetry.isInitialized()) {
+      telemetry.uninstrumentAll();
+    }
+  } catch (error) {
+    logger.debug(`Error during telemetry cleanup: ${error}`);
+  }
+}
+
+/**
+ * Register exit handlers
+ */
+function registerExitHandlers(): void {
+  if (exitHandlersRegistered) {
+    return;
+  }
+
+  // Handle normal process exit
+  process.on('exit', () => {
+    // Note: Only synchronous operations can be performed here
+    // Async operations are handled in beforeExit
+  });
+
+  // Handle async cleanup before exit
+  process.on('beforeExit', async (code) => {
+    await cleanupTelemetry();
+    await autoEndSession();
+  });
+
+  // Handle SIGINT (Ctrl+C)
+  process.on('SIGINT', async () => {
+    logger.debug('Received SIGINT, shutting down gracefully...');
+    await cleanupTelemetry();
+    await autoEndSession();
+    process.exit(0);
+  });
+
+  // Handle SIGTERM
+  process.on('SIGTERM', async () => {
+    logger.debug('Received SIGTERM, shutting down gracefully...');
+    await cleanupTelemetry();
+    await autoEndSession();
+    process.exit(0);
+  });
+
+  // Handle uncaught exceptions
+  process.on('uncaughtException', async (error) => {
+    logger.error('Uncaught exception:', error);
+    await cleanupTelemetry();
+    await autoEndSession();
+    process.exit(1);
+  });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', async (reason, promise) => {
+    logger.error('Unhandled rejection at:', promise, 'reason:', reason);
+    await cleanupTelemetry();
+    await autoEndSession();
+    process.exit(1);
+  });
+
+  exitHandlersRegistered = true;
+}
 
 /**
  * Initialize Lucidic AI SDK
@@ -28,6 +118,11 @@ export async function init(config?: LucidicConfig): Promise<string> {
 
     // Initialize client (verify API key)
     await globalClient.initialize();
+
+    // Register exit handlers if auto-end is enabled
+    if (globalClient.autoEnd) {
+      registerExitHandlers();
+    }
 
     // Initialize OpenTelemetry if providers are specified
     if (config?.providers && config.providers.length > 0) {
@@ -123,14 +218,15 @@ export async function endSession(isSuccessful: boolean = true, reason?: string):
 }
 
 /**
- * Create a new step
+ * Create a new step with named parameters
  */
-export async function createStep(config: StepConfig): Promise<Step> {
+export async function createStep(params?: CreateStepParams): Promise<Step> {
   const client = getClient();
   if (!client.session) {
     throw new Error('No active session');
   }
   
+  const config: StepConfig = params || {};
   return await client.session.createStep(config);
 }
 
@@ -148,45 +244,61 @@ export async function updateStep(
 }
 
 /**
- * End the current step
+ * End the current step or a specific step with named parameters
  */
-export async function endStep(evalScore?: number, evalDescription?: string): Promise<void> {
+export async function endStep(params?: EndStepParams): Promise<void> {
   const client = getClient();
   if (!client.session) {
     throw new Error('No active session');
   }
   
-  await client.session.endStep(evalScore, evalDescription);
+  if (!params) {
+    // End current active step with no parameters
+    await client.session.endStep();
+    return;
+  }
+  
+  const { stepId, evalScore, evalDescription, state, action, goal } = params;
+  
+  if (stepId) {
+    // End specific step
+    await client.updateStep(stepId, true, evalScore, evalDescription, state, action, goal);
+  } else {
+    // End current active step
+    await client.session.endStep(evalScore, evalDescription);
+  }
 }
 
 /**
- * Create a new event
+ * Create a new event with named parameters
  */
-export async function createEvent(config: EventConfig): Promise<Event> {
+export async function createEvent(params?: CreateEventParams): Promise<Event> {
   const client = getClient();
   if (!client.session) {
     throw new Error('No active session');
   }
   
+  const config: EventConfig = params || {};
   return await client.session.createEvent(config);
 }
 
 /**
- * Update an event
+ * Update an event with named parameters
  */
-export async function updateEvent(
-  eventId: string,
-  result?: string,
-  isFinished?: boolean,
-  costAdded?: number,
-  model?: string
-): Promise<void> {
+export async function updateEvent(params?: UpdateEventParams): Promise<void> {
   const client = getClient();
   if (!client.session) {
     throw new Error('No active session');
   }
   
-  await client.session.updateEvent(eventId, result, isFinished, costAdded, model);
+  if (!params || !params.eventId) {
+    throw new Error('Event ID is required for updateEvent');
+  }
+  
+  const { eventId, result, costAdded, model, description, screenshots } = params;
+  
+  // Note: isFinished is not in UpdateEventParams as it should be handled by endEvent
+  await client.session.updateEvent(eventId, result, undefined, costAdded, model, description);
 }
 
 /**
@@ -256,3 +368,4 @@ export { Session } from './primitives/session';
 export { Step } from './primitives/step';
 export { Event } from './primitives/event';
 export { LucidicError, APIError, ConfigurationError, SessionError, StepError, EventError } from './errors';
+export { step, withStep } from './decorators';
