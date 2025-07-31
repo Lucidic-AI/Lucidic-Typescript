@@ -87,6 +87,13 @@ export interface UpdateEventParams {
   screenshots?: string[];
 }
 
+export interface GetPromptParams {
+  name: string;
+  variables?: Record<string, any>;
+  cache?: number;
+  label?: string;
+}
+
 export interface APIResponse<T = any> {
   success: boolean;
   data?: T;
@@ -109,7 +116,7 @@ export interface EventResponse {
 }
 
 export interface PromptResponse {
-  prompt: string;
+  prompt_content: string;
   version?: string;
 }
 
