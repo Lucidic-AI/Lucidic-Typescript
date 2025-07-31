@@ -204,7 +204,7 @@ export async function updateSession(
 /**
  * End the current session
  */
-export async function endSession(isSuccessful: boolean = true, reason?: string): Promise<void> {
+export async function endSession(isSuccessful?: boolean, reason?: string): Promise<void> {
   const client = getClient();
   if (!client.session) {
     throw new Error('No active session');

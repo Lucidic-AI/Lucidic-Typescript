@@ -160,7 +160,7 @@ export class Session {
   /**
    * End the session
    */
-  public async endSession(isSuccessful: boolean = true, reason?: string): Promise<void> {
+  public async endSession(isSuccessful?: boolean, reason?: string): Promise<void> {
     if (this.isFinished) {
       logger.warn(`Session ${this.sessionId} is already finished`);
       return;
