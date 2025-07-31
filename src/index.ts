@@ -10,13 +10,15 @@ import {
   CreateStepParams,
   EndStepParams,
   CreateEventParams,
-  UpdateEventParams
+  UpdateEventParams,
+  GetPromptParams
 } from './types';
 import { Session } from './primitives/session';
 import { Step } from './primitives/step';
 import { Event } from './primitives/event';
 import { runWithImageStorage } from './telemetry/utils/imageStorage';
 import { runWithTextStorage } from './telemetry/utils/textStorage';
+import { PromptError } from './errors';
 
 // Global client instance
 let globalClient: Client | null = null;
@@ -302,11 +304,44 @@ export async function updateEvent(params?: UpdateEventParams): Promise<void> {
 }
 
 /**
- * Get a prompt from the platform
+ * Get a prompt from the platform with named parameters
  */
-export async function getPrompt(promptName: string, withCache: boolean = true): Promise<string> {
+export async function getPrompt(params: GetPromptParams | string): Promise<string> {
   const client = getClient();
-  return await client.getPrompt(promptName, withCache);
+  
+  // Support both string parameter (backward compatibility) and named parameters
+  if (typeof params === 'string') {
+    return await client.getPrompt(params);
+  }
+  
+  const { name, variables, cache = 300, label = 'production' } = params;
+  
+  // Get the prompt from the API
+  let prompt = await client.getPrompt(name, cache, label);
+  
+  // Perform variable substitution if variables are provided
+  if (variables) {
+    for (const [key, value] of Object.entries(variables)) {
+      const placeholder = `{{${key}}}`;
+      const index = prompt.indexOf(placeholder);
+      
+      if (index === -1) {
+        throw new PromptError(`Variable '${key}' not found in prompt`);
+      }
+      
+      prompt = prompt.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), String(value));
+    }
+    
+    // Check for unreplaced variables
+    if (prompt.includes('{{') && prompt.includes('}}')) {
+      const match = prompt.match(/\{\{([^}]+)\}\}/);
+      if (match) {
+        logger.warn(`Unreplaced variable(s) left in prompt. Please check your prompt.`);
+      }
+    }
+  }
+  
+  return prompt;
 }
 
 /**
@@ -367,5 +402,5 @@ export { Client } from './client';
 export { Session } from './primitives/session';
 export { Step } from './primitives/step';
 export { Event } from './primitives/event';
-export { LucidicError, APIError, ConfigurationError, SessionError, StepError, EventError } from './errors';
+export { LucidicError, APIError, ConfigurationError, SessionError, StepError, EventError, PromptError } from './errors';
 export { step, withStep } from './decorators';

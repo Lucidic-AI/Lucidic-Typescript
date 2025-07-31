@@ -1,6 +1,6 @@
 {
   "name": "lucidicai",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lucidic AI TypeScript SDK for LLM observability",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

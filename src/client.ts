@@ -35,8 +35,7 @@ export class Client {
   constructor(config?: LucidicConfig) {
     this.apiKey = config?.apiKey || process.env.LUCIDIC_API_KEY || '';
     // Use local URL if debug mode is enabled
-    // this.apiUrl = config?.apiUrl || (process.env.LUCIDIC_DEBUG === 'True' ? 'http://localhost:8000/api' : API_BASE_URL);
-    this.apiUrl = API_BASE_URL;
+    this.apiUrl = config?.apiUrl || (process.env.LUCIDIC_DEBUG === 'True' ? 'http://localhost:8000/api' : API_BASE_URL);
     this.agentId = config?.agentId || process.env.LUCIDIC_AGENT_ID || '';
     this.maskingFunction = config?.maskingFunction || null;
     
@@ -435,24 +434,37 @@ export class Client {
   /**
    * Get a prompt from the platform
    */
-  public async getPrompt(promptName: string, withCache: boolean = true): Promise<string> {
+  public async getPrompt(promptName: string, cacheTtl: number = 300, label: string = 'production'): Promise<string> {
+    const cacheKey = `${promptName}:${label}`;
+    
     // Check cache first
-    if (withCache) {
-      const cached = this.promptCache.get(promptName);
-      if (cached && Date.now() - cached.timestamp < this.PROMPT_CACHE_TTL) {
-        return cached.prompt;
+    if (cacheTtl !== 0) {
+      const cached = this.promptCache.get(cacheKey);
+      if (cached) {
+        const age = (Date.now() - cached.timestamp) / 1000; // age in seconds
+        const effectiveTtl = cacheTtl === -1 ? Infinity : cacheTtl;
+        if (age < effectiveTtl) {
+          return cached.prompt;
+        }
       }
     }
 
     try {
-      const response = await this.request<PromptResponse>('GET', `/getprompt?prompt_name=${encodeURIComponent(promptName)}`);
-      const prompt = response.prompt;
-
-      // Cache the prompt
-      this.promptCache.set(promptName, {
-        prompt,
-        timestamp: Date.now()
+      const params = new URLSearchParams({
+        agent_id: this.agentId,
+        prompt_name: promptName,
+        label: label
       });
+      const response = await this.request<PromptResponse>('GET', `/getprompt?${params.toString()}`);
+      const prompt = response.prompt_content;
+
+      // Cache the prompt if caching is enabled
+      if (cacheTtl !== 0) {
+        this.promptCache.set(cacheKey, {
+          prompt,
+          timestamp: Date.now()
+        });
+      }
 
       return prompt;
     } catch (error) {

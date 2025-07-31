@@ -50,3 +50,11 @@ export class EventError extends LucidicError {
     Object.setPrototypeOf(this, EventError.prototype);
   }
 }
+
+export class PromptError extends LucidicError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PromptError';
+    Object.setPrototypeOf(this, PromptError.prototype);
+  }
+}
