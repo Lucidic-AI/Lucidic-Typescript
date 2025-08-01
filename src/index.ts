@@ -126,11 +126,13 @@ export async function init(config?: LucidicConfig): Promise<string> {
       registerExitHandlers();
     }
 
-    // Initialize OpenTelemetry if providers are specified
+    // Always initialize OpenTelemetry to capture Vercel AI SDK spans
+    const telemetry = LucidicTelemetry.getInstance();
+    telemetry.setClientGetter(() => globalClient);
+    telemetry.initialize(globalClient.getAgentId(), 'lucidic-ai');
+    
+    // Instrument specific providers if specified
     if (config?.providers && config.providers.length > 0) {
-      const telemetry = LucidicTelemetry.getInstance();
-      telemetry.setClientGetter(() => globalClient);
-      telemetry.initialize(globalClient.getAgentId(), 'lucidic-ai');
       telemetry.instrumentProviders(config.providers);
     }
 
@@ -404,3 +406,12 @@ export { Step } from './primitives/step';
 export { Event } from './primitives/event';
 export { LucidicError, APIError, ConfigurationError, SessionError, StepError, EventError, PromptError } from './errors';
 export { step, withStep } from './decorators';
+
+/**
+ * Get the OpenTelemetry tracer used by LucidicAI
+ * This can be passed to Vercel AI SDK's experimental_telemetry.tracer option
+ */
+export function getTracer() {
+  const telemetry = LucidicTelemetry.getInstance();
+  return telemetry.getTracer();
+}
