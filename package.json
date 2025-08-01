@@ -32,6 +32,8 @@
   },
   "homepage": "https://github.com/Lucidic-AI/Lucidic-Typescript#readme",
   "dependencies": {
+    "@ai-sdk/gateway": "^1.0.0",
+    "@ai-sdk/openai": "^2.0.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/instrumentation": "^0.53.0",
     "@opentelemetry/resources": "^1.26.0",
@@ -40,8 +42,10 @@
     "@opentelemetry/semantic-conventions": "^1.27.0",
     "@traceloop/instrumentation-anthropic": "^0.11.0",
     "@traceloop/instrumentation-openai": "^0.11.0",
+    "ai": "^5.0.0",
     "axios": "^1.7.2",
     "form-data": "^4.0.0",
+    "lucidicai": "^1.0.2",
     "uuid": "^10.0.0",
     "winston": "^3.13.0"
   },

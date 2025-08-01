@@ -139,6 +139,11 @@ export class LucidicSpanProcessor implements SpanProcessor {
       }
     }
 
+    // Check for Vercel AI SDK spans
+    if (this.isVercelAISpan(span)) {
+      return true;
+    }
+
     // Check span name
     const spanNameLower = span.name.toLowerCase();
     const llmPatterns = ['openai', 'anthropic', 'chat', 'completion', 'embedding', 'gemini', 'claude'];
@@ -234,6 +239,14 @@ export class LucidicSpanProcessor implements SpanProcessor {
   private extractDescription(span: ReadableSpan, attributes: Record<string, any>): string {
     if (DEBUG) {
       logger.debug(`[SpanProcessor] Extracting description from attributes:`, Object.keys(attributes));
+    }
+    
+    // Check for Vercel AI SDK attributes
+    if (this.isVercelAISpan(span)) {
+      const vercelDescription = this.extractVercelAIDescription(span, attributes);
+      if (vercelDescription) {
+        return vercelDescription;
+      }
     }
     
     // Try to reconstruct messages from indexed attributes
@@ -422,6 +435,14 @@ export class LucidicSpanProcessor implements SpanProcessor {
       logger.debug(`[SpanProcessor] Available attribute keys: ${Object.keys(attributes).join(', ')}`);
     }
 
+    // Check for Vercel AI SDK result
+    if (this.isVercelAISpan(span)) {
+      const vercelResult = this.extractVercelAIResult(span, attributes);
+      if (vercelResult) {
+        return vercelResult;
+      }
+    }
+
     // Try indexed completions first (gen_ai format)
     const completions = this.extractIndexedCompletions(attributes);
     if (completions.length > 0) {
@@ -590,6 +611,22 @@ export class LucidicSpanProcessor implements SpanProcessor {
   }
 
   private extractModel(attributes: Record<string, any>): string {
+    // Check Vercel AI SDK attributes first
+    if (attributes['ai.model.id']) {
+      // Vercel AI SDK format: ai.model.id contains the model name
+      // ai.model.provider contains the provider (e.g., 'openai')
+      const modelId = attributes['ai.model.id'];
+      const provider = attributes['ai.model.provider'];
+      
+      // Return in a format compatible with cost calculation
+      if (provider === 'openai' && modelId) {
+        return modelId; // e.g., 'gpt-4o'
+      }
+      
+      return modelId || 'unknown';
+    }
+    
+    // Fallback to OpenLLMetry attributes
     return attributes[SPAN_ATTRIBUTES.LLM_RESPONSE_MODEL] ||
            attributes[SPAN_ATTRIBUTES.LLM_REQUEST_MODEL] ||
            attributes['gen_ai.response.model'] ||
@@ -635,12 +672,18 @@ export class LucidicSpanProcessor implements SpanProcessor {
   }
 
   private calculateCost(attributes: Record<string, any>): number | null {
-    const promptTokens = attributes[SPAN_ATTRIBUTES.LLM_USAGE_PROMPT_TOKENS] ||
+    // Check for Vercel AI SDK usage attributes
+    const vercelPromptTokens = attributes['ai.usage.inputTokens'];
+    const vercelCompletionTokens = attributes['ai.usage.outputTokens'];
+    
+    const promptTokens = vercelPromptTokens ||
+                        attributes[SPAN_ATTRIBUTES.LLM_USAGE_PROMPT_TOKENS] ||
                         attributes['gen_ai.usage.prompt_tokens'] ||
                         attributes['gen_ai.usage.input_tokens'] ||
                         0;
     
-    const completionTokens = attributes[SPAN_ATTRIBUTES.LLM_USAGE_COMPLETION_TOKENS] ||
+    const completionTokens = vercelCompletionTokens ||
+                            attributes[SPAN_ATTRIBUTES.LLM_USAGE_COMPLETION_TOKENS] ||
                             attributes['gen_ai.usage.completion_tokens'] ||
                             attributes['gen_ai.usage.output_tokens'] ||
                             0;
@@ -671,5 +714,120 @@ export class LucidicSpanProcessor implements SpanProcessor {
 
   forceFlush(): Promise<void> {
     return Promise.resolve();
+  }
+
+  private isVercelAISpan(span: Span | ReadableSpan): boolean {
+    const spanName = span.name;
+    const attributes = span.attributes || {};
+    
+    // Check for Vercel AI SDK span patterns
+    const vercelAIPatterns = [
+      'ai.generateText',
+      'ai.streamText',
+      'ai.generateObject',
+      'ai.streamObject',
+      'ai.embed',
+      'ai.embedMany',
+      'ai.toolCall'
+    ];
+    
+    if (vercelAIPatterns.some(pattern => spanName.startsWith(pattern))) {
+      if (DEBUG) {
+        logger.debug(`[SpanProcessor] Detected Vercel AI SDK span: ${spanName}`);
+      }
+      return true;
+    }
+    
+    // Check for attributes that indicate Vercel AI SDK
+    if (attributes['ai.model.id'] || attributes['ai.model.provider']) {
+      if (DEBUG) {
+        logger.debug(`[SpanProcessor] Detected Vercel AI SDK span by attributes: ${spanName}`);
+      }
+      return true;
+    }
+    
+    return false;
+  }
+
+  private extractVercelAIDescription(span: ReadableSpan, attributes: Record<string, any>): string | null {
+    if (DEBUG) {
+      logger.debug(`[SpanProcessor] Extracting Vercel AI SDK description from span: ${span.name}`);
+    }
+
+    // Handle prompt/messages from Vercel AI SDK telemetry
+    if (attributes['ai.prompt.messages']) {
+      try {
+        const messages = JSON.parse(attributes['ai.prompt.messages']);
+        if (Array.isArray(messages)) {
+          return this.formatMessages(messages);
+        }
+      } catch (e) {
+        if (DEBUG) {
+          logger.debug(`[SpanProcessor] Failed to parse ai.prompt.messages:`, e);
+        }
+      }
+    }
+
+    // Handle single prompt
+    if (attributes['ai.prompt']) {
+      return `Prompt: ${attributes['ai.prompt']}`;
+    }
+
+    // Handle tool calls
+    if (span.name.includes('toolCall') && attributes['ai.toolCall.name']) {
+      const toolName = attributes['ai.toolCall.name'];
+      const toolId = attributes['ai.toolCall.id'];
+      return `Tool Call: ${toolName}${toolId ? ` (${toolId})` : ''}`;
+    }
+
+    // Construct description from operation type
+    const operationType = span.name.split('.').slice(1).join('.');
+    const modelId = attributes['ai.model.id'] || 'unknown model';
+    
+    return `Vercel AI ${operationType}: ${modelId}`;
+  }
+
+  private extractVercelAIResult(span: ReadableSpan, attributes: Record<string, any>): string | null {
+    if (DEBUG) {
+      logger.debug(`[SpanProcessor] Extracting Vercel AI SDK result from span: ${span.name}`);
+    }
+
+    // Handle text generation result
+    if (attributes['ai.response.text']) {
+      return attributes['ai.response.text'];
+    }
+
+    // Handle object generation result
+    if (attributes['ai.response.object']) {
+      try {
+        const obj = JSON.parse(attributes['ai.response.object']);
+        return JSON.stringify(obj, null, 2);
+      } catch {
+        return attributes['ai.response.object'];
+      }
+    }
+
+    // Handle embedding result
+    if (attributes['ai.embedding'] || attributes['ai.embeddings']) {
+      const embeddings = attributes['ai.embeddings'] || [attributes['ai.embedding']];
+      return `Generated ${embeddings.length} embedding(s)`;
+    }
+
+    // Handle tool call result
+    if (attributes['ai.toolCall.result']) {
+      try {
+        const result = JSON.parse(attributes['ai.toolCall.result']);
+        return JSON.stringify(result, null, 2);
+      } catch {
+        return attributes['ai.toolCall.result'];
+      }
+    }
+
+    // Handle finish reason
+    if (attributes['ai.response.finishReason']) {
+      return `Finished: ${attributes['ai.response.finishReason']}`;
+    }
+
+    return null;
   }
 }
