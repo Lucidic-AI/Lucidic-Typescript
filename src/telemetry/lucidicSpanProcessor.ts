@@ -510,6 +510,33 @@ export class LucidicSpanProcessor implements SpanProcessor {
       logger.debug(`[SpanProcessor] Extracting images from attributes`);
     }
     
+    // Check for Vercel AI SDK specific image attributes
+    if (attributes['ai.prompt.messages']) {
+      try {
+        const messages = JSON.parse(attributes['ai.prompt.messages']);
+        if (Array.isArray(messages)) {
+          for (const msg of messages) {
+            if (msg.content && Array.isArray(msg.content)) {
+              for (const content of msg.content) {
+                if (content.mediaType?.startsWith('image/')) {
+                  logger.info(`[SpanProcessor] Found Vercel AI image in message`);
+                  // Ensure image is in data URI format
+                  let imageData = content.data;
+                  if (!imageData.startsWith('data:')) {
+                    // If not a data URI, assume it's base64 and add prefix
+                    imageData = `data:image/jpeg;base64,${imageData}`;
+                  }
+                  images.push(imageData);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        logger.debug(`[SpanProcessor] Failed to parse ai.prompt.messages for images:`, e);
+      }
+    }
+    
     // First check indexed messages
     const messages = this.extractIndexedMessages(attributes);
     for (const msg of messages) {
