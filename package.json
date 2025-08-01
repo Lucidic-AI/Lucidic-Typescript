@@ -1,6 +1,6 @@
 {
   "name": "lucidicai",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Lucidic AI TypeScript SDK for LLM observability",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,8 +9,8 @@
     "test": "npm run test:all",
     "test:openai": "ts-node tests/test_openai_comprehensive.ts",
     "test:anthropic": "ts-node tests/test_anthropic_comprehensive.ts",
-    "test:all": "npm run test:openai && npm run test:anthropic",
-    "lint": "eslint src/**/*.ts",
+    "test:vercel": "ts-node tests/test_vercel_ai_comprehensive.ts",
+    "test:all": "npm run test:openai && npm run test:anthropic && npm run test:vercel",
     "format": "prettier --write src/**/*.ts",
     "prepublishOnly": "npm run build"
   },
@@ -32,6 +32,7 @@
   },
   "homepage": "https://github.com/Lucidic-AI/Lucidic-Typescript#readme",
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/gateway": "^1.0.0",
     "@ai-sdk/openai": "^2.0.0",
     "@opentelemetry/api": "^1.9.0",

@@ -81,6 +81,7 @@ export class LucidicSpanProcessor implements SpanProcessor {
     try {
       const spanId = span.spanContext().spanId;
 
+
       if (DEBUG) {
         logger.debug(`[SpanProcessor] on_end called for span: ${span.name}`);
         logger.debug(`[SpanProcessor] Span attributes at end:`, span.attributes);
@@ -720,12 +721,29 @@ export class LucidicSpanProcessor implements SpanProcessor {
     const spanName = span.name;
     const attributes = span.attributes || {};
     
-    // Check for Vercel AI SDK span patterns
-    const vercelAIPatterns = [
+    // Skip parent Vercel AI SDK spans - we only want the .doGenerate child spans
+    // which contain the actual API call details
+    const parentPatterns = [
       'ai.generateText',
       'ai.streamText',
       'ai.generateObject',
-      'ai.streamObject',
+      'ai.streamObject'
+    ];
+    
+    // Only process these if they don't have child spans
+    if (parentPatterns.some(pattern => spanName === pattern)) {
+      if (DEBUG) {
+        logger.debug(`[SpanProcessor] Skipping parent Vercel AI SDK span: ${spanName}`);
+      }
+      return false;
+    }
+    
+    // Check for Vercel AI SDK span patterns (including child spans)
+    const vercelAIPatterns = [
+      'ai.generateText.doGenerate',
+      'ai.streamText.doGenerate',
+      'ai.generateObject.doGenerate',
+      'ai.streamObject.doGenerate',
       'ai.embed',
       'ai.embedMany',
       'ai.toolCall'
