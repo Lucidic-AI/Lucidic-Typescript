@@ -3,6 +3,7 @@ import { HttpClient } from '../client/httpClient';
 import { SessionResource } from '../client/resources/session';
 import { PromptResource } from '../client/resources/prompt';
 import { buildTelemetry } from '../telemetry/init';
+import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug } from '../util/logger';
 
@@ -92,5 +93,11 @@ export function getMask(): ((text: string)=>string)|undefined { return state.mas
 export function getPromptResource(): PromptResource {
   if (!state.prompt) throw new Error('Lucidic SDK not initialized');
   return state.prompt;
+}
+
+// Return an OTel tracer from our local provider when available; fallback to global tracer
+export function getLucidicTracer(name: string = 'ai', version?: string) {
+  if (state.provider) return state.provider.getTracer(name, version);
+  return trace.getTracer(name, version);
 }
 
