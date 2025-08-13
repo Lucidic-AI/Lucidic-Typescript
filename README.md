@@ -1,507 +1,223 @@
-# Lucidic AI TypeScript SDK
+# Lucidic AI TypeScript SDK (Node)
 
-Official TypeScript SDK for Lucidic AI - LLM observability platform for tracking and analyzing AI agent workflows.
+Node.js SDK for Lucidic AI. It follows the LucidicAI Session → Step → Event model and bridges OpenTelemetry/OpenLLMetry spans into Lucidic session-level events. Supports providers (OpenAI, Anthropic, LangChain) and Vercel AI SDK.
 
-## Installation
+- Non-global OTel provider (avoids conflicts)
+- Exporter-first bridge (Batch or Simple span processor)
+- Session/Step/Event APIs + decorators
+- Image uploads via presigned URLs
+- Vercel AI SDK support (LLM spans + tool call spans)
 
+## Requirements
+- Node.js >= 18
+
+## Install
 ```bash
 npm install lucidicai
 ```
 
-## Quick Start
+## Environment variables
+- `LUCIDIC_API_KEY` (required)
+- `LUCIDIC_AGENT_ID` (required)
+- `LUCIDIC_AUTO_END` (optional) defaults to `True`; session auto-ends on shutdown
 
-```typescript
-import * as lai from 'lucidicai';
+## Quick start
 
-// Initialize the SDK
-await lai.init({
-  apiKey: 'your-api-key', // or set LUCIDIC_API_KEY env var
-  agentId: 'your-agent-id', // or set LUCIDIC_AGENT_ID env var
-  sessionName: 'My AI Assistant',
-  providers: ['openai', 'anthropic'] // Auto-instrument providers
+### A) Vercel AI SDK (recommended for router-based apps)
+Use our built-in telemetry helper to route Vercel AI spans (LLM + tools) to Lucidic.
+
+```ts
+import 'dotenv/config';
+import { init, aiTelemetry } from 'lucidicai';
+import { generateText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
+
+await init({
+  sessionName: 'My Vercel AI Session',
+  providers: [], // we don’t need provider auto-instrumentation for Vercel AI
 });
 
-// IMPORTANT: Import LLM libraries AFTER lai.init() for automatic tracking
-const OpenAI = (await import('openai')).default;
-const openai = new OpenAI();
+const telemetry = aiTelemetry();
 
-// Your LLM calls are now automatically tracked!
-const response = await openai.chat.completions.create({
-  model: 'gpt-4',
-  messages: [{ role: 'user', content: 'Hello!' }]
+const tools = {
+  add: tool({
+    inputSchema: z.object({ a: z.number(), b: z.number() }),
+    execute: async ({ a, b }) => a + b,
+  }),
+} as const;
+
+const res = await generateText({
+  model: openai('gpt-4o-mini'),
+  prompt: 'Use the add tool to compute 2+3',
+  tools,
+  experimental_telemetry: telemetry,
 });
 
-// End session when done
-await lai.endSession();
+console.log(res.text);
 ```
 
-## Core Concepts
+- Lucidic will create events for:
+  - LLM calls (ai.generateText.doGenerate spans)
+  - Tool calls (ai.toolCall spans)
+- Tool spans include arguments in the event description and the tool result in the event result.
+- If the LLM finishes due to tool calls, the LLM event result lists all tool invocations.
 
-### Sessions
-Top-level containers for complete AI workflows:
+### B) OpenAI/Anthropic using official SDKs (auto-instrumentation)
+For vendor SDKs, initialize Lucidic and provide the module for manual instrumentation (ESM-safe). This ensures spans are captured without relying on import order.
 
-```typescript
-// Initialize a session
-await lai.initSession({
-  sessionName: 'Customer Support Chat',
-  task: 'Help user with product questions',
-  userId: 'user123',
-  groupId: 'support-team'
+```ts
+import 'dotenv/config';
+import { init } from 'lucidicai';
+import OpenAI from 'openai';
+
+await init({
+  sessionName: 'OpenAI Session',
+  providers: ['openai'],
+  instrumentModules: { OpenAI }, // important for ESM order
 });
 
-// Continue an existing session
-await lai.continueSession('existing-session-id');
+const client = new OpenAI({ apiKey: process.env.OpenAI_API_KEY! });
+const r = await client.chat.completions.create({
+  model: 'gpt-4o-mini',
+  messages: [
+    { role: 'system', content: 'You are helpful.' },
+    { role: 'user', content: 'Say hello' },
+  ],
+});
+console.log(r.choices?.[0]?.message?.content);
+```
 
-// Update session
-await lai.updateSession('New task description', { custom: 'tags' });
+ESM import order: static imports evaluate before code. If you don’t pass `instrumentModules`, ensure `init()` runs before importing the provider (e.g., dynamic `import('openai')` after `await init()`), or use our manual module patch path.
 
-// End session
-await lai.endSession(true, 'Successfully resolved issue');
+CommonJS: wrap in `async function main(){...}`; avoid top-level await.
+
+## API
+
+### init(params)
+Starts a Lucidic session and wires telemetry.
+
+Selected options:
+- `sessionName?: string`
+- `apiKey?: string` (defaults to `process.env.LUCIDIC_API_KEY`)
+- `agentId?: string` (defaults to `process.env.LUCIDIC_AGENT_ID`)
+- `providers?: Array<'openai'|'anthropic'|'langchain'>`
+- `instrumentModules?: Record<string, any>` manual provider modules (ESM-friendly)
+- `useSpanProcessor?: boolean` use SimpleSpanProcessor (immediate export). Default: BatchSpanProcessor with flush on exit
+- `autoEnd?: boolean` default true, ends the session on `beforeExit`, `SIGINT`, `SIGTERM`
+- `maskingFunction?: (text: string) => string` masking applied to descriptions/results in decorators and tool args/results in exporter
+
+Example:
+```ts
+await init({ sessionName: 'Prod Session', providers: ['openai'] });
+```
+
+### Telemetry helpers (Vercel AI)
+- `aiTelemetry()` returns `{ isEnabled: true, tracer: getLucidicTracer('ai'), recordInputs: true, recordOutputs: true }` for `experimental_telemetry`.
+- `getLucidicTracer(name?: string)` returns a tracer from our local provider (fallback to global tracer).
+
+### Session
+```ts
+import { updateSession, endSession } from 'lucidicai';
+
+await updateSession({ task: 'indexing', tags: ['batch'] });
+await endSession({ isSuccessful: true, isSuccessfulReason: 'Completed' });
 ```
 
 ### Steps
-Logical units within sessions that track state, action, and goal:
+```ts
+import { createStep, updateStep, endStep } from 'lucidicai';
 
-```typescript
-// Create a step with named parameters (all optional)
-const step = await lai.createStep({
-  state: 'Analyzing user query',
-  action: 'Parse intent and extract entities',
-  goal: 'Understand user needs'
-});
-
-// Create step with parameters in any order
-await lai.createStep({
-  goal: 'Complete analysis',
-  state: 'Processing',
-  action: 'Analyze data'
-});
-
-// Create step with no parameters
-await lai.createStep();
-
-// End step with named parameters
-await lai.endStep({
-  evalScore: 95,
-  evalDescription: 'Successfully identified intent'
-});
-
-// End step with no parameters
-await lai.endStep();
-
-// End specific step by ID
-await lai.endStep({
-  stepId: 'step-123',
-  evalScore: 100,
-  state: 'Completed'
-});
+const stepId = await createStep({ state: 'processing', screenshotPath: '/path/to/image.png' });
+await updateStep({ stepId, evalScore: 0.9 });
+await endStep({ stepId });
 ```
+- `screenshotPath` auto-uploads via presigned URL.
 
 ### Events
-Individual LLM API calls (automatically tracked when providers are instrumented):
+```ts
+import { createEvent, updateEvent, endEvent } from 'lucidicai';
 
-```typescript
-// Create event with named parameters (all optional)
-const event = await lai.createEvent({
-  description: 'Custom LLM call',
-  result: 'Model response here',
-  model: 'gpt-4',
-  costAdded: 0.03
+const eventId = await createEvent({ description: 'Parsed request' });
+await updateEvent({ eventId, result: 'ok' });
+await endEvent({ eventId });
+```
+- For multimodal, pass base64 data URLs via `screenshots: string[]`.
+
+### Decorators
+Wrap functions to automatically create/end steps or events around them.
+
+```ts
+import { step, event } from 'lucidicai';
+
+const doWork = step({ state: 'processing', action: 'compute' })(async (x: number) => {
+  // LLM/tool calls inside still produce their own events
+  return x * 2;
 });
 
-// Create event with parameters in any order
-await lai.createEvent({
-  model: 'claude-3',
-  description: 'Another call',
-  result: 'Response'
-});
+const parse = event({ description: 'Parse input' })(async (s: string) => JSON.parse(s));
+```
+Behavior:
+- If SDK not initialized or no session, decorators no-op (run function normally)
+- Step: creates a step, ends it on success; on error ends with `evalScore=0` and error message
+- Event: description auto-generated from arguments if omitted; result auto-built from return value if omitted
+- Masking function (if provided) is applied; long strings are safely truncated
+- AsyncLocalStorage tracks current step/event IDs for helpers like `updateCurrentEvent`, `updateCurrentStep`
 
-// Create event with no parameters
-await lai.createEvent();
+### Prompt API
+```ts
+import { PromptResource } from 'lucidicai';
 
-// Update event with named parameters
-await lai.updateEvent({
-  eventId: event.eventId,
-  result: 'Updated result',
-  description: 'Updated description'
-});
-
-// Update with parameters in any order
-await lai.updateEvent({
-  model: 'gpt-4-turbo',
-  eventId: event.eventId,
-  costAdded: 0.05,
-  result: 'New result'
-});
+const prompts = new PromptResource();
+const rendered = await prompts.getPrompt('welcome', { name: 'Ada' });
+const raw = await prompts.getRawPrompt('welcome');
 ```
 
-## Features
+## Vercel AI tools with decorators (class pattern)
+```ts
+import { init, aiTelemetry } from 'lucidicai';
+import { event } from 'lucidicai';
+import { generateText, tool } from 'ai';
+import { openai } from '@ai-sdk/openai';
+import { z } from 'zod';
 
-### Optional Named Parameters
+class Tools {
+  @event({ description: 'add tool' })
+  static async add({ a, b }: { a: number; b: number }) { return a + b; }
 
-All SDK functions support optional named parameters that can be passed in any order, similar to the Python SDK:
-
-```typescript
-// All parameters are optional
-await lai.createStep();
-await lai.createEvent();
-await lai.endStep();
-
-// Pass only what you need, in any order
-await lai.createStep({ goal: 'My goal' });
-await lai.endStep({ evalScore: 90 });
-await lai.createEvent({ model: 'gpt-4', description: 'Test' });
-
-// Mix and match parameters as needed
-await lai.updateEvent({
-  eventId: 'event-123',
-  result: 'Updated'
-});
-```
-
-### Automatic Provider Instrumentation
-
-The SDK automatically instruments supported providers using OpenTelemetry:
-
-```typescript
-lai.init({
-  providers: ['openai', 'anthropic']
-});
-
-// All OpenAI and Anthropic calls are now tracked automatically
-```
-
-### Auto-Creation and Auto-End Features
-
-The SDK provides several automatic features to reduce boilerplate code:
-
-#### Auto Step Creation
-When creating an event without an active step, the SDK automatically creates a temporary step:
-
-```typescript
-// No active step exists
-const event = await lai.createEvent({
-  description: 'My event',
-  result: 'Event result'
-});
-// A temporary step is created and immediately finished
-```
-
-#### Auto Event Creation
-LLM API calls are automatically tracked as events when providers are instrumented:
-
-```typescript
-// After initializing with providers
-await lai.init({ providers: ['openai'] });
-
-// This OpenAI call automatically creates an event
-const response = await openai.chat.completions.create({
-  model: 'gpt-4',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
-
-#### Auto Step End with Decorators
-Use decorators to automatically end steps when functions complete:
-
-```typescript
-import { step } from 'lucidicai';
-
-class MyService {
-  @step({
-    state: 'Processing data',
-    action: 'Transform input',
-    goal: 'Generate output'
-  })
-  async processData(input: string): Promise<string> {
-    // Step is created when method starts
-    const result = await someProcessing(input);
-    return result;
-    // Step is automatically ended when method completes
-  }
-}
-```
-
-Or use the functional wrapper:
-
-```typescript
-import { withStep } from 'lucidicai';
-
-const wrappedFunction = withStep(async (data: string) => {
-  return await processData(data);
-}, {
-  state: 'Processing',
-  action: 'Transform data',
-  goal: 'Return result'
-});
-
-// Step is automatically created and ended
-await wrappedFunction('my data');
-```
-
-#### Auto Session End on Exit
-By default, the SDK automatically ends active sessions when your program exits:
-
-```typescript
-// Sessions are auto-ended on:
-// - Normal process exit
-// - SIGINT (Ctrl+C)
-// - SIGTERM
-// - Uncaught exceptions
-// - Unhandled promise rejections
-
-// To disable auto-end:
-await lai.init({
-  autoEnd: false  // or set LUCIDIC_AUTO_END=false env var
-});
-```
-
-When a session ends, all unfinished steps are automatically ended as well.
-
-### Multimodal Support
-
-Handles text and image inputs automatically:
-
-```typescript
-const response = await openai.chat.completions.create({
-  model: 'gpt-4-vision-preview',
-  messages: [{
-    role: 'user',
-    content: [
-      { type: 'text', text: 'What is in this image?' },
-      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,...' } }
-    ]
-  }]
-});
-```
-
-### Cost Tracking
-
-Built-in pricing data for all major models:
-
-```typescript
-// Costs are automatically calculated based on token usage
-const event = await lai.createEvent({
-  description: 'GPT-4 call',
-  model: 'gpt-4',
-  // costAdded calculated automatically from token usage
-});
-```
-
-### Data Masking
-
-Protect sensitive information:
-
-```typescript
-lai.setMaskingFunction((text: string) => {
-  // Mask SSNs, emails, etc.
-  return text.replace(/\b\d{3}-\d{2}-\d{4}\b/g, '***-**-****');
-});
-```
-
-### Mass Simulations
-
-Run large-scale testing:
-
-```typescript
-await lai.runMassSimulation({
-  sessionBaseName: 'Load Test',
-  numSessions: 100,
-  sessionFunction: async () => {
-    // Your test logic here
-    await someAIOperation();
-  }
-});
-```
-
-### Prompt Management
-
-Fetch and cache prompts from the platform:
-
-```typescript
-const prompt = await lai.getPrompt('customer-support-prompt');
-```
-
-### Image Upload
-
-Upload images for analysis:
-
-```typescript
-const imageUrl = await lai.uploadImage(imageBuffer);
-```
-
-## Configuration
-
-### Environment Variables
-
-- `LUCIDIC_API_KEY` - Your Lucidic API key
-- `LUCIDIC_AGENT_ID` - Your Lucidic agent ID
-- `LUCIDIC_DEBUG` - Set to 'True' for debug logging
-- `LUCIDIC_AUTO_END` - Set to 'false' to disable auto-end on exit (default: 'true')
-
-### Initialization Options
-
-```typescript
-interface LucidicConfig {
-  apiKey?: string;         // API key (defaults to LUCIDIC_API_KEY env var)
-  agentId?: string;       // Agent ID (defaults to LUCIDIC_AGENT_ID env var)
-  sessionName?: string;    // Auto-create session with this name
-  sessionId?: string;      // Continue existing session
-  task?: string;          // Session task description
-  userId?: string;        // User identifier
-  groupId?: string;       // Group identifier
-  testId?: string;        // Test run identifier
-  providers?: string[];   // Providers to auto-instrument
-  maskingFunction?: (text: string) => string; // Data masking
-  autoEnd?: boolean;      // Auto-end session on exit (defaults to true)
-}
-```
-
-## Supported Providers
-
-- OpenAI (including GPT-4, GPT-3.5, o1, o3 models)
-- Anthropic (Claude 3/3.5/4 models)
-
-### Known Limitations
-
-#### Anthropic Streaming Content
-Due to a limitation in the `@traceloop/instrumentation-anthropic` library, streaming responses from Anthropic's messages API are not fully captured. When using `stream: true` with `anthropic.messages.create()`, the response content will show as "Response received" instead of the actual streamed content.
-
-**Workaround**: For critical use cases where you need streaming content tracked, you can manually create events:
-
-```typescript
-// Manual tracking for Anthropic streaming
-const stream = await anthropic.messages.create({
-  model: 'claude-3-haiku-20240307',
-  messages: [{ role: 'user', content: 'Hello' }],
-  stream: true
-});
-
-let fullContent = '';
-for await (const event of stream) {
-  if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-    fullContent += event.delta.text;
-  }
+  @event({ description: 'reverse tool' })
+  static async reverse({ text }: { text: string }) { return text.split('').reverse().join(''); }
 }
 
-// Manually create an event with the content
-await lai.createEvent({
-  description: 'Anthropic streaming response',
-  result: fullContent,
-  model: 'claude-3-haiku-20240307'
-});
+await init({ sessionName: 'Agent Demo', providers: [] });
+const telemetry = aiTelemetry();
+
+const tools = {
+  add: tool({ inputSchema: z.object({ a: z.number(), b: z.number() }), execute: Tools.add }),
+  reverse: tool({ inputSchema: z.object({ text: z.string() }), execute: Tools.reverse }),
+} as const;
+
+const res = await generateText({ model: openai('gpt-4o-mini'), tools, prompt: 'Use tools', experimental_telemetry: telemetry });
+console.log(res.text);
 ```
 
-## Error Handling
+## Import patterns (ESM vs CJS)
+- ESM: Static imports run before code. For provider auto-instrumentation (OpenAI/Anthropic), either pass `instrumentModules` to `init()` or import the provider dynamically after `await init()`.
+- CJS: Wrap code in an async `main()` function; don’t use top-level await.
 
-The SDK provides specific error types:
+## Image handling
+- Steps: `screenshotPath` (or `screenshot`) triggers presigned upload to S3
+- Events: `screenshots: string[]` base64 data URLs are uploaded via presigned URLs
+- Vercel AI: image content inside prompts is detected and uploaded instead of embedding base64 in event text
 
-```typescript
-try {
-  await lai.init({ apiKey: 'invalid' });
-} catch (error) {
-  if (error instanceof lai.ConfigurationError) {
-    // Handle configuration errors
-  } else if (error instanceof lai.APIError) {
-    // Handle API errors
-  }
-}
-```
+## Costs and models
+- We compute cost from `gen_ai.usage.*` and model mapping, mirroring the Python SDK’s pricing logic
 
-## TypeScript Support
-
-Full TypeScript support with comprehensive type definitions:
-
-```typescript
-import { Session, Step, Event, LucidicConfig } from 'lucidicai';
-```
-
-## Important: Import Order
-
-**Critical**: For automatic LLM call tracking to work, you must initialize Lucidic AI **before** importing any LLM provider libraries (OpenAI, Anthropic, etc.).
-
-### Correct Order
-```typescript
-// 1. First, initialize Lucidic
-await lai.init({ providers: ['openai'] });
-
-// 2. Then, import LLM libraries
-const OpenAI = (await import('openai')).default;
-```
-
-### Incorrect Order
-```typescript
-// DON'T DO THIS - events won't be tracked!
-import OpenAI from 'openai';  // Imported before lai.init()
-await lai.init({ providers: ['openai'] });
-```
-
-## Examples
-
-### Basic Chat Application
-
-```typescript
-import * as lai from 'lucidicai';
-
-// Initialize Lucidic first
-await lai.init({
-  sessionName: 'Chat Session',
-  providers: ['openai']
-});
-
-// Then import OpenAI
-const OpenAI = (await import('openai')).default;
-const openai = new OpenAI();
-
-// Create a step for the conversation
-await lai.createStep({
-  state: 'Active conversation',
-  action: 'Respond to user messages',
-  goal: 'Provide helpful responses'
-});
-
-// Have a conversation (automatically tracked)
-const response = await openai.chat.completions.create({
-  model: 'gpt-4',
-  messages: [
-    { role: 'system', content: 'You are a helpful assistant.' },
-    { role: 'user', content: 'How do I use TypeScript?' }
-  ]
-});
-
-console.log(response.choices[0].message.content);
-
-// End the session
-await lai.endStep(100, 'Conversation completed');
-await lai.endSession(true);
-```
-
-### Multi-Step Workflow
-
-```typescript
-// Step 1: Analyze input
-await lai.createStep({
-  state: 'Input analysis',
-  action: 'Extract intent and entities',
-  goal: 'Understand user request'
-});
-
-// ... perform analysis ...
-
-await lai.endStep(100, 'Analysis complete');
-
-// Step 2: Process request
-await lai.createStep({
-  state: 'Processing',
-  action: 'Generate response',
-  goal: 'Create helpful output'
-});
-
-// ... generate response ...
-
-await lai.endStep(100, 'Response generated');
-```
+## Troubleshooting
+- No events after init (OpenAI/Anthropic): ensure `instrumentModules` includes your provider module, or import the provider after `await init()`
+- Vercel AI: always pass `experimental_telemetry: aiTelemetry()` so spans route to Lucidic
+- Session didn’t auto-end: ensure process isn’t force-exited; we hook `beforeExit`, `SIGINT`, `SIGTERM` and flush the provider
+- Top-level await errors: in CJS, wrap code in `async function main(){...}`
 
 ## License
-
-MIT
+Apache-2.0
