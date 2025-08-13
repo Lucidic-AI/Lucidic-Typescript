@@ -18,7 +18,8 @@ export async function getPresignedUploadUrl(
 
 // Upload JPEG/GIF to presigned URL (Node fetch)
 export async function uploadImageToS3(url: string, buffer: Buffer, contentType: 'image/jpeg'|'image/gif'): Promise<void> {
-  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': contentType }, body: buffer });
+  const body = new Uint8Array(buffer);
+  const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': contentType }, body });
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 }
 
