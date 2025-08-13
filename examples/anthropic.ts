@@ -10,6 +10,11 @@ import { init } from '../src/sdk/init';
 import { Anthropic } from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// ESM-compatible __dirname / __filename
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function main() {
   // Pass the SDK class for manual instrumentation and use simple processor for quick flush in examples

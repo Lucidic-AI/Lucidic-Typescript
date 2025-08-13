@@ -29,16 +29,16 @@ export async function reverseTool({ text }: { text: string }): Promise<string> {
 
 // Class with decorated tool methods
 class Tools {
-  // @event({ description: 'add tool' })
+  @event({ description: 'add tool' })
   static async add({ a, b }: { a: number; b: number }) { return addTool({ a, b }); }
 
-  // @event({ description: 'subtract tool' })
+  @event({ description: 'subtract tool' })
   static async subtract({ a, b }: { a: number; b: number }) { return subtractTool({ a, b }); }
 
-  // @event({ description: 'time tool' })
+  @event({ description: 'time tool' })
   static async now() { return timeTool(); }
 
-  // @event({ description: 'reverse tool' })
+  @event({ description: 'reverse tool' })
   static async reverse({ text }: { text: string }) { return reverseTool({ text }); }
 }
 

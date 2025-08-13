@@ -12,9 +12,14 @@ import { init } from '../src/sdk/init';
 import { aiTelemetry } from '../src/sdk/init';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { generateText, streamText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
+
+// ESM-compatible __dirname / __filename
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function main() {
   // Init Lucidic (non-global provider). We'll pass our tracer per-call.
