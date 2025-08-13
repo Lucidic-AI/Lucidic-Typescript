@@ -33,12 +33,14 @@ export class LucidicSpanExporter implements SpanExporter {
 
         if (isAiSdkToolSpan) {
           const toolName = attrs['ai.toolCall.name'] as string | undefined;
+          const toolId = attrs['ai.toolCall.id'] as string | undefined;
           const rawArgs = attrs['ai.toolCall.args'] as string | undefined;
           const mask = getMask();
           const argsMasked = rawArgs ? (mask ? mask(rawArgs) : rawArgs) : undefined;
           const argsSnippet = argsMasked && argsMasked.length > 400 ? argsMasked.slice(0, 400) + '…' : argsMasked;
-          description = `Tool call: ${toolName ?? 'unknown'}\n${argsSnippet ? `Arguments: ${argsSnippet}` : ''}`;
-          result = `Tool call result: ${(attrs['ai.toolCall.result'] as string | undefined) ?? null}`;
+          description = `Tool call: ${toolName ?? 'unknown'}\n${toolId ? `Tool ID: ${toolId}\n` : ''}${argsSnippet ? `Arguments: ${argsSnippet}` : ''}`;
+          const toolResultRaw = (attrs['ai.toolCall.result'] as string | undefined) ?? null;
+          result = toolResultRaw == null ? null : `Tool Call Result: ${toolResultRaw}`;
           images = [];
           model = 'tool';
           cost = null;
@@ -52,23 +54,19 @@ export class LucidicSpanExporter implements SpanExporter {
           // If the LLM finished due to a tool call, include tool details in result
           const finishReasons = attrs['gen_ai.response.finish_reasons'];
           if (Array.isArray(finishReasons) && finishReasons.some((r: any) => String(r).toLowerCase().includes('tool'))) {
-            let toolName: string | undefined;
-            let toolId: string | undefined;
-            let toolInputs: string | undefined;
             const toolCallsRaw = attrs['ai.response.toolCalls'];
             try {
               const parsed = typeof toolCallsRaw === 'string' ? JSON.parse(toolCallsRaw) : toolCallsRaw;
               if (Array.isArray(parsed) && parsed.length > 0) {
-                const first = parsed[0] as any;
-                toolName = first?.toolName ?? first?.name;
-                toolId = first?.toolCallId ?? first?.id;
-                const inputStr = first?.input != null ? JSON.stringify(first.input) : undefined;
-                const mask = getMask();
-                toolInputs = inputStr ? (mask ? mask(inputStr) : inputStr) : undefined;
+                const lines: string[] = [];
+                for (const item of parsed) {
+                  const n = item?.toolName ?? item?.name ?? 'unknown';
+                  const id = item?.toolCallId ?? item?.id ?? 'unknown';
+                  lines.push(`- ${n} (id: ${id})`);
+                }
+                result = `Tool Invokations:\n${lines.join('\n')}`;
               }
             } catch {}
-            const inputsSnippet = toolInputs && toolInputs.length > 800 ? toolInputs.slice(0, 800) + '…' : toolInputs;
-            result = `Tool Invokation\nTool Name: ${toolName ?? 'unknown'}\nTool Id: ${toolId ?? 'unknown'}\nTool Inputs: ${inputsSnippet ?? 'unknown'}`;
           }
         }
 
