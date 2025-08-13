@@ -101,3 +101,13 @@ export function getLucidicTracer(name: string = 'ai', version?: string) {
   return trace.getTracer(name, version);
 }
 
+// Convenience: default AI SDK telemetry payload that routes spans to Lucidic
+export function aiTelemetry() {
+  return {
+    isEnabled: true,
+    tracer: getLucidicTracer('ai'),
+    recordInputs: true,
+    recordOutputs: true,
+  } as any;
+}
+

@@ -9,7 +9,7 @@
 */
 import 'dotenv/config';
 import { init } from '../src/sdk/init';
-import { getLucidicTracer } from '../src/sdk/init';
+import { aiTelemetry } from '../src/sdk/init';
 import fs from 'node:fs';
 import path from 'node:path';
 import { generateText, streamText, tool } from 'ai';
@@ -19,16 +19,6 @@ import { z } from 'zod';
 async function main() {
   // Init Lucidic (non-global provider). We'll pass our tracer per-call.
   await init({ sessionName: 'Vercel AI SDK Demo', providers: [] });
-
-// Build telemetry payload using the tracer from global API (wired by our provider)
-  function aiTelemetry() {
-  return {
-    isEnabled: true,
-    tracer: getLucidicTracer('ai'),
-    recordInputs: true,
-    recordOutputs: true,
-  } as any;
-}
 
   async function regularChat() {
   const res = await generateText({

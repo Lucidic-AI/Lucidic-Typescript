@@ -7,7 +7,7 @@
     npx tsx examples/decorators_agent.ts
 */
 import 'dotenv/config';
-import { init, getLucidicTracer } from '../src/sdk/init';
+import { init, aiTelemetry } from '../src/sdk/init';
 import { event } from '../src/sdk/decorators';
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
@@ -49,15 +49,6 @@ export const tools = {
   now: tool({ inputSchema: z.object({}), execute: Tools.now as any }),
   reverse: tool({ inputSchema: z.object({ text: z.string() }), execute: Tools.reverse }),
 } as const;
-
-function aiTelemetry() {
-  return {
-    isEnabled: true,
-    tracer: getLucidicTracer('ai'),
-    recordInputs: true,
-    recordOutputs: true,
-  } as any;
-}
 
 async function main() {
   await init({ sessionName: 'Decorator Agent Demo', providers: [] });
