@@ -48,6 +48,28 @@ export class LucidicSpanExporter implements SpanExporter {
           images = extractImages(attrs);
           model = extractModel(attrs) ?? 'unknown';
           cost = calculateCostUSD(model, attrs);
+
+          // If the LLM finished due to a tool call, include tool details in result
+          const finishReasons = attrs['gen_ai.response.finish_reasons'];
+          if (Array.isArray(finishReasons) && finishReasons.some((r: any) => String(r).toLowerCase().includes('tool'))) {
+            let toolName: string | undefined;
+            let toolId: string | undefined;
+            let toolInputs: string | undefined;
+            const toolCallsRaw = attrs['ai.response.toolCalls'];
+            try {
+              const parsed = typeof toolCallsRaw === 'string' ? JSON.parse(toolCallsRaw) : toolCallsRaw;
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const first = parsed[0] as any;
+                toolName = first?.toolName ?? first?.name;
+                toolId = first?.toolCallId ?? first?.id;
+                const inputStr = first?.input != null ? JSON.stringify(first.input) : undefined;
+                const mask = getMask();
+                toolInputs = inputStr ? (mask ? mask(inputStr) : inputStr) : undefined;
+              }
+            } catch {}
+            const inputsSnippet = toolInputs && toolInputs.length > 800 ? toolInputs.slice(0, 800) + '…' : toolInputs;
+            result = `Tool Invokation\nTool Name: ${toolName ?? 'unknown'}\nTool Id: ${toolId ?? 'unknown'}\nTool Inputs: ${inputsSnippet ?? 'unknown'}`;
+          }
         }
 
         const isSuccessful = span.status.code !== SpanStatusCode.ERROR;
