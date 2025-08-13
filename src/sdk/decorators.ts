@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { debug } from '../util/logger';
 import { getMask, getSessionId } from './init';
+import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 
 type AnyFn = (...args: any[]) => any;
 
@@ -83,7 +84,19 @@ export function event(options: {
 
       // Link to active step if present
       const stepId = getDecoratorStep();
-      const eventId = await mod.createEvent({ description, stepId, model: options.model, costAdded: options.costAdded });
+      const functionName = fn.name || 'anonymous';
+      let serializedArgs = toJsonSafe(args);
+      if (mask) {
+        serializedArgs = mapJsonStrings(serializedArgs, mask);
+      }
+      const eventId = await mod.createEvent({
+        description,
+        stepId,
+        model: options.model,
+        costAdded: options.costAdded,
+        functionName,
+        arguments: serializedArgs,
+      });
       const prev = als.getStore() ?? {};
       return await als.run({ ...prev, currentEventId: eventId }, async () => {
         try {
@@ -94,11 +107,25 @@ export function event(options: {
             if (mask) finalResult = mask(finalResult);
             if (finalResult.length > 4096) finalResult = finalResult.slice(0, 4096) + '…';
           }
-          await mod.endEvent({ eventId, result: finalResult, model: options.model, costAdded: options.costAdded });
+          await mod.endEvent({
+            eventId,
+            result: finalResult,
+            model: options.model,
+            costAdded: options.costAdded,
+            functionName,
+            arguments: serializedArgs,
+          });
           return result;
         } catch (e) {
           const errStr = `Error: ${String(e)}`;
-          await mod.endEvent({ eventId, result: mask ? mask(errStr) : errStr, model: options.model, costAdded: options.costAdded });
+          await mod.endEvent({
+            eventId,
+            result: mask ? mask(errStr) : errStr,
+            model: options.model,
+            costAdded: options.costAdded,
+            functionName,
+            arguments: serializedArgs,
+          });
           throw e;
         }
       });
