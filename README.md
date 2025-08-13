@@ -220,4 +220,4 @@ console.log(res.text);
 - Top-level await errors: in CJS, wrap code in `async function main(){...}`
 
 ## License
-Apache-2.0
+MIT
