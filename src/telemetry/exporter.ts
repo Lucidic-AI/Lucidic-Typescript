@@ -2,7 +2,7 @@ import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 import { extractPrompts, extractCompletions, extractImages, detectIsLlmSpan, extractModel } from './extract.js';
-import { getHttp, getSessionId, getAgentId } from '../sdk/init.js';
+import { getHttp, getSessionId, getAgentId, getMask } from '../sdk/init.js';
 import { EventResource } from '../client/resources/event.js';
 import { calculateCostUSD } from './pricing.js';
 import { debug } from '../util/logger.js';
@@ -33,8 +33,12 @@ export class LucidicSpanExporter implements SpanExporter {
 
         if (isAiSdkToolSpan) {
           const toolName = attrs['ai.toolCall.name'] as string | undefined;
-          description = `Tool call: ${toolName ?? 'unknown'}`;
-          result = (attrs['ai.toolCall.result'] as string | undefined) ?? null;
+          const rawArgs = attrs['ai.toolCall.args'] as string | undefined;
+          const mask = getMask();
+          const argsMasked = rawArgs ? (mask ? mask(rawArgs) : rawArgs) : undefined;
+          const argsSnippet = argsMasked && argsMasked.length > 400 ? argsMasked.slice(0, 400) + '…' : argsMasked;
+          description = `Tool call: ${toolName ?? 'unknown'}\n${argsSnippet ? `Arguments: ${argsSnippet}` : ''}`;
+          result = `Tool call result: ${(attrs['ai.toolCall.result'] as string | undefined) ?? null}`;
           images = [];
           model = 'tool';
           cost = null;
