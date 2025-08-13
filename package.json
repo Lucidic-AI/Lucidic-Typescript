@@ -1,7 +1,7 @@
 {
   "name": "lucidicai",
   "version": "2.0.1",
-  "description": "Lucidic AI TypeScript SDK (Node-only) with OpenTelemetry/OpenLLMetry integration",
+  "description": "Lucidic AI TypeScript SDK for AI Agent Observability",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
