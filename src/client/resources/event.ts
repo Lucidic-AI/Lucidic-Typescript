@@ -15,6 +15,8 @@ export class EventResource {
       model: params.model,
       nscreenshots: params.screenshots?.length,
       duration: undefined,
+      function_name: params.functionName,
+      arguments: params.arguments,
     };
     if (params.stepId) payload.step_id = params.stepId;
     if (!params.stepId && params.sessionId) payload.session_id = params.sessionId;
@@ -45,6 +47,8 @@ export class EventResource {
       model: params.model,
       is_finished: params.result ? true : undefined,
       duration: undefined,
+      function_name: params.functionName,
+      arguments: params.arguments,
     });
   }
 }

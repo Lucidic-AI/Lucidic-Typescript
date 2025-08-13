@@ -1,5 +1,13 @@
 export type ProviderType = 'openai' | 'anthropic' | 'langchain';
 
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export type InitParams = {
   sessionName?: string;
   sessionId?: string;
@@ -50,6 +58,9 @@ export type EventParams = {
   costAdded?: number;
   model?: string;
   screenshots?: string[]; // base64 data URLs
+  // function metadata
+  functionName?: string;
+  arguments?: JsonValue; // valid JSON only
 };
 
 export type GetPromptParams = {
