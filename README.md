@@ -5,6 +5,7 @@ Node.js SDK for Lucidic AI. It follows the LucidicAI Session → Step → Event 
 - Non-global OTel provider (avoids conflicts)
 - Exporter-first bridge (Batch or Simple span processor)
 - Session/Step/Event APIs + decorators
+- Decorators capture function metadata (function_name + JSON-safe arguments)
 - Image uploads via presigned URLs
 - Vercel AI SDK support (LLM spans + tool call spans)
 
@@ -143,6 +144,13 @@ await updateEvent({ eventId, result: 'ok' });
 await endEvent({ eventId });
 ```
 - For multimodal, pass base64 data URLs via `screenshots: string[]`.
+- When events are created via decorators, the SDK also sends:
+  - `function_name` (string): the decorated function name
+  - `arguments` (JSON): the call arguments as a JSON-safe array in positional order
+    - JSON-native values (string, number, boolean, null, arrays, plain objects) are preserved
+    - Non-JSON values (e.g., functions, class instances, Dates, BigInt, NaN/Infinity, Maps/Sets, Buffers, typed arrays) are stringified
+    - Strings are truncated to ~4096 chars and, if configured, masked by your `maskingFunction`
+  - If you call the Event APIs directly, you may also pass these as `functionName` and `arguments` in the SDK; they will be sent to the backend as `function_name` and `arguments`.
 
 ### Decorators
 Wrap functions to automatically create/end steps or events around them.
@@ -163,6 +171,37 @@ Behavior:
 - Event: description auto-generated from arguments if omitted; result auto-built from return value if omitted
 - Masking function (if provided) is applied; long strings are safely truncated
 - AsyncLocalStorage tracks current step/event IDs for helpers like `updateCurrentEvent`, `updateCurrentStep`
+
+#### Function metadata in decorators
+Decorated functions automatically include their name and arguments in the event payload sent to the backend.
+
+```ts
+import { event } from 'lucidicai';
+
+// One positional argument (object)
+const add = event()(async function add({ a, b }: { a: number; b: number }) {
+  return a + b;
+});
+
+// Multiple positional arguments
+const concat = event()(async function concat(a: string, b: string) {
+  return a + b;
+});
+```
+
+The backend receives fields:
+
+```json
+{
+  "function_name": "add",
+  "arguments": [ { "a": 2, "b": 3 } ]
+}
+```
+
+Notes:
+- `arguments` is an array matching the function call’s positional arguments.
+- JSON-native types are preserved; non-JSON values are stringified.
+- If a `maskingFunction` is provided to `init()`, it is applied to strings (including inside nested objects/arrays).
 
 ### Prompt API
 ```ts
