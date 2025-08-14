@@ -1,5 +1,5 @@
 // Prices are per 1M tokens.
-type Pricing = { input: number; output: number};
+type Pricing = { input: number; output: number };
 
 const MODEL_PRICING: Record<string, Pricing> = {
 
