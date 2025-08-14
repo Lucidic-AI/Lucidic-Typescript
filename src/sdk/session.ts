@@ -10,7 +10,7 @@ export async function updateSession(params: UpdateSessionParams): Promise<void> 
   await res.updateSession(sessionId, params);
 }
 
-export async function endSession(params: UpdateSessionParams): Promise<void> {
+export async function endSession(params: UpdateSessionParams = {}): Promise<void> {
   const http = getHttp();
   const sessionId = getSessionId();
   if (!sessionId) return;
