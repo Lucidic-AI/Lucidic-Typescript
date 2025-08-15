@@ -43,9 +43,15 @@ export async function buildTelemetry(params: BuildTelemetryParams) {
 
   provider.addSpanProcessor(processor);
 
-  const openaiInstr = params.providers.includes('openai') ? new OpenAIInstrumentation({ traceContent: true }) : null;
-  const anthrInstr = params.providers.includes('anthropic') ? new AnthropicInstrumentation({ traceContent: true }) : null;
-  const lcInstr = params.providers.includes('langchain') ? new LangChainInstrumentation({ traceContent: true }) : null;
+  // Allow instrumentations to be enabled either via providers[] or via instrumentModules escape hatch
+  const modules = params.instrumentModules ?? {};
+  const enableOpenAI = params.providers.includes('openai') || !!(modules as any).OpenAI || !!(modules as any).openai;
+  const enableAnthropic = params.providers.includes('anthropic') || !!(modules as any).anthropic || !!(modules as any).Anthropic;
+  const enableLangChain = params.providers.includes('langchain') || !!(modules as any).langchain || !!(modules as any).LangChain;
+
+  const openaiInstr = enableOpenAI ? new OpenAIInstrumentation({ traceContent: true }) : null;
+  const anthrInstr = enableAnthropic ? new AnthropicInstrumentation({ traceContent: true }) : null;
+  const lcInstr = enableLangChain ? new LangChainInstrumentation({ traceContent: true }) : null;
 
   const instrumentations = [openaiInstr, anthrInstr, lcInstr].filter(Boolean) as any[];
   registerInstrumentations({ instrumentations, tracerProvider: provider });
@@ -54,17 +60,20 @@ export async function buildTelemetry(params: BuildTelemetryParams) {
   // Manual instrumentation escape hatch (ESM/Next.js quirks)
   if (params.instrumentModules) {
     try {
-      if (openaiInstr && (params.instrumentModules as any).OpenAI) {
+      if (openaiInstr && ((params.instrumentModules as any).OpenAI || (params.instrumentModules as any).openai)) {
         debug('Manually instrumenting OpenAI module');
-        (openaiInstr as any).manuallyInstrument((params.instrumentModules as any).OpenAI);
+        const mod = (params.instrumentModules as any).OpenAI ?? (params.instrumentModules as any).openai;
+        (openaiInstr as any).manuallyInstrument(mod);
       }
-      if (anthrInstr && (params.instrumentModules as any).anthropic) {
+      if (anthrInstr && ((params.instrumentModules as any).anthropic || (params.instrumentModules as any).Anthropic)) {
         debug('Manually instrumenting Anthropic module');
-        (anthrInstr as any).manuallyInstrument((params.instrumentModules as any).anthropic);
+        const mod = (params.instrumentModules as any).anthropic ?? (params.instrumentModules as any).Anthropic;
+        (anthrInstr as any).manuallyInstrument(mod);
       }
-      if (lcInstr && (params.instrumentModules as any).langchain) {
+      if (lcInstr && ((params.instrumentModules as any).langchain || (params.instrumentModules as any).LangChain)) {
         debug('Manually instrumenting LangChain modules');
-        (lcInstr as any).manuallyInstrument((params.instrumentModules as any).langchain);
+        const mod = (params.instrumentModules as any).langchain ?? (params.instrumentModules as any).LangChain;
+        (lcInstr as any).manuallyInstrument(mod);
       }
     } catch (e) {
       debug('Manual instrumentation error', e);

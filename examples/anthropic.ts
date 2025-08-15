@@ -1,12 +1,12 @@
 /*
-  Anthropic examples mirroring Python comprehensive tests. Run standalone.
+  Anthropic examples
   Usage:
     export LUCIDIC_API_KEY=... LUCIDIC_AGENT_ID=...
     export ANTHROPIC_API_KEY=...
     tsx examples/anthropic.ts
 */
 import 'dotenv/config';
-import { init } from '../src/sdk/init';
+import { init } from 'lucidicai';
 import { Anthropic } from '@anthropic-ai/sdk';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +18,7 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   // Pass the SDK class for manual instrumentation and use simple processor for quick flush in examples
-  await init({ sessionName: 'Anthropic Examples', providers: ['anthropic'], instrumentModules: { anthropic: Anthropic }});
+  await init({ sessionName: 'Anthropic Examples', instrumentModules: { anthropic: Anthropic }});
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
   // 1) Native sync message

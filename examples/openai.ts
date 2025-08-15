@@ -5,7 +5,7 @@
     tsx examples/openai.ts
 */
 import 'dotenv/config';
-import { init } from '../src/sdk/init';
+import { init } from 'lucidicai';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-  await init({ sessionName: 'OpenAI Examples', providers: ['openai'], instrumentModules: { OpenAI }});
+  await init({ sessionName: 'OpenAI Examples', instrumentModules: { OpenAI }});
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
   // 1) Sync chat completion
