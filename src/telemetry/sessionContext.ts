@@ -17,3 +17,8 @@ export function setActiveSession(sessionId: string): void {
 export function withSession<T>(sessionId: string, fn: () => T): T {
   return sessionAls.run({ sessionId }, fn);
 }
+
+export function clearActiveSession(): void {
+  sessionAls.enterWith({});
+  debug('ALS active session cleared');
+}
