@@ -23,9 +23,8 @@ export class LucidicSpanExporter implements SpanExporter {
 
         debug('Exporter processing span', { name: span.name, attrs });
         const stampedSessionId = attrs['lucidic.session_id'] as string | undefined;
-        const stampedAgentId = attrs['lucidic.agent_id'] as string | undefined;
         const sessionId = stampedSessionId ?? getSessionId();
-        const agentId = stampedAgentId ?? getAgentId();
+        const agentId = getAgentId();
         debug('Span routing decision', { name: span.name, used: stampedSessionId ? 'stamped' : 'global', sessionId });
         if (!sessionId) continue;
         let description: string;
