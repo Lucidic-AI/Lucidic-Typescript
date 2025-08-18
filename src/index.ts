@@ -5,4 +5,6 @@ export * from './sdk/event';
 export * from './sdk/decorators';
 export * from './client/types';
 export * from './sdk/prompt';
+export { withSession, setActiveSession, clearActiveSession } from './telemetry/sessionContext';
+export { withLucidic } from './sdk/context';
 

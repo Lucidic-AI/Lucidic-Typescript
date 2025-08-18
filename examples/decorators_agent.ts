@@ -7,8 +7,7 @@
     npx tsx examples/decorators_agent.ts
 */
 import 'dotenv/config';
-import { init, aiTelemetry } from '../src/sdk/init';
-import { event } from '../src/sdk/decorators';
+import { init, aiTelemetry, event } from 'lucidicai';
 import { generateText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
@@ -51,7 +50,7 @@ export const tools = {
 } as const;
 
 async function main() {
-  await init({ sessionName: 'Decorator Agent Demo', providers: [] });
+  await init({ sessionName: 'Decorator Agent Demo' });
 
   const tasks = [
     'Use the add tool to compute 7 + 12, then say the current time using the now tool.',

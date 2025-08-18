@@ -56,6 +56,7 @@ export type EventParams = {
   description?: string;
   result?: string;
   costAdded?: number;
+  duration?: number;
   model?: string;
   screenshots?: string[]; // base64 data URLs
   // function metadata

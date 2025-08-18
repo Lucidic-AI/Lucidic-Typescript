@@ -1,7 +1,17 @@
 {
   "name": "lucidicai",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Lucidic AI TypeScript SDK for AI Agent Observability",
+  "author": {
+    "name": "Anvit Sinha",
+    "email": "anvit@lucidic.ai"
+  },
+  "contributors": [
+    {
+      "name": "Lucidic AI",
+      "email": "team@lucidic.ai"
+    }
+  ],
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -45,6 +55,7 @@
     "@traceloop/instrumentation-openai": "^0.12.0",
     "ai": "^5.0.11",
     "jimp": "^0.22.12",
+    "lucidicai": "^2.0.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

@@ -8,8 +8,7 @@
     pnpm tsx examples/vercel_ai.ts
 */
 import 'dotenv/config';
-import { init } from '../src/sdk/init';
-import { aiTelemetry } from '../src/sdk/init';
+import { init, aiTelemetry } from 'lucidicai';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +22,7 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   // Init Lucidic (non-global provider). We'll pass our tracer per-call.
-  await init({ sessionName: 'Vercel AI SDK Demo', providers: [] });
+  await init({ sessionName: 'Vercel AI SDK Demo' });
 
   async function regularChat() {
   const res = await generateText({
@@ -44,6 +43,15 @@ async function main() {
   for await (const chunk of textStream) full += chunk;
   console.log('Stream:', full);
 }
+
+  async function reasoningExample() {
+    const resp = await generateText({
+      model: openai('o3-mini'),
+      prompt: 'Solve: 17 * 23. Think step by step internally, but return only "Final Answer: <number>".',
+      experimental_telemetry: aiTelemetry(),
+    });
+    console.log('o3-mini result:', resp.text);
+  }
 
   async function visionImage() {
     // Use a real image buffer to satisfy AI SDK validation
@@ -93,6 +101,7 @@ async function main() {
 }
   await regularChat();
   await streamingChat();
+  await reasoningExample();
   await visionImage();
   await toolCalls();
 

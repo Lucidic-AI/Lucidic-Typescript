@@ -80,6 +80,30 @@ export async function init(params: InitParams = {}): Promise<string> {
     process.on('SIGTERM', () => { handler().finally(() => process.exit(0)); });
   }
 
+  // Always flush on process exit, even when autoEnd is disabled
+  // 1) beforeExit: best-effort flush (no shutdown, process may continue scheduling work)
+  process.on('beforeExit', async () => {
+    if (state.provider) {
+      try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (beforeExit)', e); }
+    }
+  });
+
+  // 2) On signals: if autoEnd didn't run, flush and shutdown before exiting
+  const flushAndExit = async () => {
+    if (state.isShuttingDown) return;
+    state.isShuttingDown = true;
+    try {
+      if (state.provider) {
+        try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
+        try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error (signal)', e); }
+      }
+    } finally {
+      process.exit(0);
+    }
+  };
+  process.on('SIGINT', () => { if (!autoEnd) { void flushAndExit(); } });
+  process.on('SIGTERM', () => { if (!autoEnd) { void flushAndExit(); } });
+
   return session_id;
 }
 

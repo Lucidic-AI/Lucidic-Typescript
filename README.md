@@ -5,6 +5,7 @@ Node.js SDK for Lucidic AI. It follows the LucidicAI Session → Step → Event 
 - Non-global OTel provider (avoids conflicts)
 - Exporter-first bridge (Batch or Simple span processor)
 - Session/Step/Event APIs + decorators
+- Async-safe session context management (ALS) for correct span-to-session routing in concurrent backends
 - Decorators capture function metadata (function_name + JSON-safe arguments)
 - Image uploads via presigned URLs
 - Vercel AI SDK support (LLM spans + tool call spans)
@@ -74,7 +75,6 @@ import OpenAI from 'openai';
 
 await init({
   sessionName: 'OpenAI Session',
-  providers: ['openai'],
   instrumentModules: { OpenAI }, // important for ESM order
 });
 
@@ -93,9 +93,90 @@ ESM import order: static imports evaluate before code. If you don’t pass `inst
 
 CommonJS: wrap in `async function main(){...}`; avoid top-level await.
 
+## Session context management (async-safe)
+
+Lucidic uses Node AsyncLocalStorage (ALS) to stamp each span with the correct `session_id`. This is critical for concurrent servers where multiple requests/sessions run in parallel.
+
+You have three ergonomic options:
+
+1) Full context manager (init → set context → run → end → clear)
+
+```ts
+import { withLucidic } from 'lucidicai';
+
+const result = await withLucidic({
+  sessionName: 'order-123',
+  providers: ['openai'],
+  // autoEnd is ignored; withLucidic always ends the session
+}, async () => {
+  // model calls here; spans route to this session
+  return await doWork();
+});
+```
+
+2) Context-only wrapper (init → withSession; does NOT end session)
+
+```ts
+import { init, withSession } from 'lucidicai';
+
+const sessionId = await init({ sessionName: 'persistent', autoEnd: false });
+await withSession(sessionId, async () => {
+  // model calls; session remains open after this returns
+});
+// later, when appropriate
+// await endSession({ isSuccessful: true });
+```
+
+3) Fully manual (explicit set/clear)
+
+```ts
+import { init, setActiveSession, clearActiveSession, endSession } from 'lucidicai';
+
+const sessionId = await init({ sessionName: 'manual' });
+setActiveSession(sessionId);
+await doWork();
+clearActiveSession();
+await endSession({ isSuccessful: true });
+```
+
+Notes
+- `withSession` scopes ALS to the provided function; it does not call `clearActiveSession()` but ALS context is restored automatically after `fn` resolves/rejects.
+- For detached async roots (timers/queues/workers), call `setActiveSession(sessionId)` inside that root before model calls, or wrap the work with `withSession(sessionId, fn)`.
+- The exporter prefers per-span stamped `lucidic.session_id` and falls back to the global session id if stamping is missing.
+
+## Backend patterns
+
+### Persistent session per request (recommended when you don’t want automatic end)
+
+```ts
+// Server handler
+const sessionId = await init({ sessionName: `req-${req.id}`, autoEnd: false, providers: ['openai'], instrumentModules: { OpenAI } });
+await withSession(sessionId, async () => {
+  // model calls here; spans route to this session
+});
+// Do NOT end here; end elsewhere when the workflow is complete
+```
+
+### Short task (one-shot) with automatic end
+
+```ts
+await withLucidic({ sessionName: 'short-task', providers: ['openai'], instrumentModules: { OpenAI } }, async () => {
+  await doShortWork(); // session ends automatically afterward
+});
+```
+
+### Background jobs / async roots
+
+```ts
+// In the job runner process
+setActiveSession(sessionIdFromEnqueue);
+await runJob();
+clearActiveSession();
+```
+
 ## API
 
-### init(params)
+### init
 Starts a Lucidic session and wires telemetry.
 
 Selected options:
@@ -257,6 +338,8 @@ console.log(res.text);
 - Vercel AI: always pass `experimental_telemetry: aiTelemetry()` so spans route to Lucidic
 - Session didn’t auto-end: ensure process isn’t force-exited; we hook `beforeExit`, `SIGINT`, `SIGTERM` and flush the provider
 - Top-level await errors: in CJS, wrap code in `async function main(){...}`
+- Concurrent requests route to wrong session: make sure you use one of the context options above (withLucidic, withSession, or setActiveSession). The SDK stamps spans at creation using ALS and the exporter routes by stamped session id.
+- Duplicate OpenTelemetry registration errors: the SDK guards global tracer provider registration; if you still see issues, ensure you do not manually register another provider.
 
 ## License
 MIT
