@@ -39,6 +39,13 @@ export async function init(params: InitParams = {}): Promise<string> {
   state.agentId = agentId;
   state.masking = params.maskingFunction;
   state.prompt = new PromptResource(http, agentId);
+  // Set active session in AsyncLocalStorage for the current async chain
+  try {
+    await import('../telemetry/sessionContext.js').then(m => m.setActiveSession(session_id, agentId));
+    debug('ALS active session set (from init)', { sessionId: session_id });
+  } catch (e) {
+    debug('Unable to set active session in ALS', e);
+  }
 
   // Telemetry
   const providers = (params.providers ?? []) as ProviderType[];

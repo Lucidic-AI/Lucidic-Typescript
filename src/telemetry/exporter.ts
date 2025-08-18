@@ -13,10 +13,7 @@ export class LucidicSpanExporter implements SpanExporter {
   async export(spans: ReadableSpan[], resultCallback: (result: any) => void): Promise<void> {
     try {
       const http = getHttp();
-      const sessionId = getSessionId();
-      if (!sessionId) { resultCallback({ code: 0 }); return; }
       const eventRes = new EventResource(http);
-      const agentId = getAgentId();
 
       for (const span of spans) {
         const attrs = span.attributes ?? {};
@@ -25,6 +22,12 @@ export class LucidicSpanExporter implements SpanExporter {
         if (!isLlmSpan && !isAiSdkToolSpan) continue;
 
         debug('Exporter processing span', { name: span.name, attrs });
+        const stampedSessionId = attrs['lucidic.session_id'] as string | undefined;
+        const stampedAgentId = attrs['lucidic.agent_id'] as string | undefined;
+        const sessionId = stampedSessionId ?? getSessionId();
+        const agentId = stampedAgentId ?? getAgentId();
+        debug('Span routing decision', { name: span.name, used: stampedSessionId ? 'stamped' : 'global', sessionId });
+        if (!sessionId) continue;
         let description: string;
         let result: string | null;
         let images: string[] = [];
@@ -71,14 +74,15 @@ export class LucidicSpanExporter implements SpanExporter {
         }
 
         const isSuccessful = span.status.code !== SpanStatusCode.ERROR;
-        const duration = span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined;
+        const timeTaken = span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined;
 
-        debug('Exporter built event payload', { description, resultPreview: String(result).slice(0, 80), model, imagesCount: images.length, isSuccessful, duration, cost });
+        debug('Exporter built event payload', { description, resultPreview: String(result).slice(0, 80), model, imagesCount: images.length, isSuccessful, timeTaken, cost });
         await eventRes.initEvent({
           description,
           result: result ?? undefined,
           model,
           costAdded: cost ?? undefined,
+          duration: timeTaken ?? undefined,
           screenshots: images.length ? images : undefined,
           sessionId,
           agentId,

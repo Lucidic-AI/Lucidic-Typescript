@@ -14,7 +14,7 @@ export class EventResource {
       cost_added: params.costAdded,
       model: params.model,
       nscreenshots: params.screenshots?.length,
-      duration: undefined,
+      duration: params.duration,
       function_name: params.functionName,
       arguments: params.arguments,
     };
@@ -46,7 +46,7 @@ export class EventResource {
       cost_added: params.costAdded,
       model: params.model,
       is_finished: params.result ? true : undefined,
-      duration: undefined,
+      duration: params.duration,
       function_name: params.functionName,
       arguments: params.arguments,
     });

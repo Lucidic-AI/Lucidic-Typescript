@@ -55,6 +55,7 @@
     "@traceloop/instrumentation-openai": "^0.12.0",
     "ai": "^5.0.11",
     "jimp": "^0.22.12",
+    "lucidicai": "^2.0.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {

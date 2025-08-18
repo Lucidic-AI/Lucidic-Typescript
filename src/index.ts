@@ -5,4 +5,5 @@ export * from './sdk/event';
 export * from './sdk/decorators';
 export * from './client/types';
 export * from './sdk/prompt';
+export { withSession, setActiveSession } from './telemetry/sessionContext';
 

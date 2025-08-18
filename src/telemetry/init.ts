@@ -9,6 +9,9 @@ import { LangChainInstrumentation } from '@traceloop/instrumentation-langchain';
 import { LucidicSpanExporter } from './exporter';
 import { debug, info } from '../util/logger';
 
+// Guard: global tracer provider should be registered at most once per process
+let didRegisterGlobalProvider = false;
+
 type BuildTelemetryParams = {
   providers: Array<'openai'|'anthropic'|'langchain'>;
   useSpanProcessor: boolean;
@@ -42,6 +45,26 @@ export async function buildTelemetry(params: BuildTelemetryParams) {
   debug('Span processor created', { mode: params.useSpanProcessor ? 'simple' : 'batch' });
 
   provider.addSpanProcessor(processor);
+  try {
+    const { SessionStampProcessor } = await import('./sessionStamp.js');
+    provider.addSpanProcessor(new SessionStampProcessor());
+    debug('SessionStampProcessor added');
+  } catch (e) {
+    debug('Unable to add SessionStampProcessor', e);
+  }
+
+  // Register provider as global to ensure any instrumentation that relies on the global API uses our provider -- guarded
+  try {
+    if (!didRegisterGlobalProvider) {
+      provider.register();
+      didRegisterGlobalProvider = true;
+      debug('Tracer provider registered as global');
+    } else {
+      debug('Tracer provider already registered as global; skipping');
+    }
+  } catch (e) {
+    debug('Error registering tracer provider as global', e);
+  }
 
   // Allow instrumentations to be enabled either via providers[] or via instrumentModules escape hatch
   const modules = params.instrumentModules ?? {};
