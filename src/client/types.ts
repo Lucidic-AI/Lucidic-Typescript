@@ -1,4 +1,11 @@
-export type ProviderType = 'openai' | 'anthropic' | 'langchain';
+export type ProviderType =
+  | 'openai'
+  | 'azureopenai'
+  | 'anthropic'
+  | 'langchain'
+  | 'vertexai'
+  | 'bedrock'
+  | 'cohere';
 
 export type JsonValue =
   | null
