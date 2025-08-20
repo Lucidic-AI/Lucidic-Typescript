@@ -29,6 +29,8 @@ export type InitParams = {
   tags?: string[];
   maskingFunction?: (text: string) => string;
   autoEnd?: boolean;
+  // capture uncaught exceptions and create a crash event (default: true)
+  captureUncaught?: boolean;
   // optional escape hatch for manual module instrumentation (Next.js-like)
   instrumentModules?: Record<string, any>;
   // telemetry options

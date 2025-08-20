@@ -341,5 +341,41 @@ console.log(res.text);
 - Concurrent requests route to wrong session: make sure you use one of the context options above (withLucidic, withSession, or setActiveSession). The SDK stamps spans at creation using ALS and the exporter routes by stamped session id.
 - Duplicate OpenTelemetry registration errors: the SDK guards global tracer provider registration; if you still see issues, ensure you do not manually register another provider.
 
+
+## Crash events on uncaught exceptions
+
+When the SDK is initialized, Lucidic will capture uncaught exceptions and create a final crash event before exiting the process. This is enabled by default and requires no additional configuration.
+
+Behavior:
+
+- On `uncaughtException`:
+  - A Lucidic event is created and linked to the current session.
+  - The event description contains the full error stack trace (if available). If a `maskingFunction` was provided to `init()`, it is applied to the description; very long descriptions are truncated to ~16K characters.
+  - The event result is set to: `"process exited with code 1"`.
+  - The session is then ended as unsuccessful with reason `"uncaughtException"`.
+  - The telemetry provider is flushed and shut down (best effort), and the process exits with code 1.
+
+Configuration:
+
+- Enabled by default. To opt out, pass `captureUncaught: false` to `init()`:
+
+```ts
+await init({ sessionName: 'my-session', captureUncaught: false });
+```
+
+- This behavior is independent of `autoEnd`; even when `autoEnd` is `false`, the SDK will still end the session in the `uncaughtException` fatal path.
+
+Unhandled rejections:
+
+- The SDK does not capture or log `unhandledRejection` events. This avoids changing Node.js runtime semantics and minimizes the risk of double-reporting or interfering with frameworks that manage promise rejections.
+
+Caveats and lifecycle notes:
+
+- Multiple `uncaughtException` listeners: Node.js will invoke all registered listeners. The SDK’s listener performs best-effort async cleanup and then calls `process.exit(1)`. Ordering across listeners is not guaranteed. If another listener calls `process.exit()` first, the SDK may not complete crash event creation.
+- Exit vs beforeExit: Calling `process.exit()` triggers the `exit` event but not `beforeExit`. Your `exit` handlers will run synchronously. Asynchronous work inside `exit` (or inside `uncaughtException`) is not guaranteed to complete by Node.js design.
+- Cleanup guarantees: Only synchronous cleanup in user handlers is guaranteed in this fatal path. The SDK attempts to flush telemetry and send the crash event, but network issues or abrupt termination can prevent delivery.
+- Idempotence and interference: The SDK guards its fatal path to avoid double-ending or double-flushing if other shutdown signals fire. It does not register any `unhandledRejection` handler and does not alter default Node behavior for rejections.
+
+
 ## License
 MIT
