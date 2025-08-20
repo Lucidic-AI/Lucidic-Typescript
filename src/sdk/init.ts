@@ -5,7 +5,8 @@ import { PromptResource } from '../client/resources/prompt';
 import { buildTelemetry } from '../telemetry/init';
 import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
-import { info, debug } from '../util/logger';
+import { info, debug, error as logError } from '../util/logger';
+import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 
 type State = {
   http: HttpClient | null;
@@ -22,6 +23,122 @@ const state: State = {
   sessionId: null,
   agentId: null,
 };
+
+const MAX_ERROR_DESCRIPTION_LENGTH = 16384;
+
+async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<never> {
+  // Idempotent guard across all shutdown paths
+  if (state.isShuttingDown) {
+    process.exit(exitCode);
+  }
+  state.isShuttingDown = true;
+
+  // Print Node-like default stack output directly to stderr (avoid logger prefix)
+  try {
+    if (err && typeof err === 'object' && 'stack' in (err as any) && typeof (err as any).stack === 'string') {
+      // Raw stack for user visibility
+      process.stderr.write(String((err as any).stack) + '\n');
+    } else if (err && typeof err === 'object' && 'message' in (err as any) && typeof (err as any).message === 'string') {
+      process.stderr.write(String((err as any).message) + '\n');
+    } else {
+      process.stderr.write(String(err) + '\n');
+    }
+  } catch {
+    console.error('Error writing error stack to stderr', err);
+  }
+
+  // Build detailed description, prefer stack traces
+  let description: string;
+  if (err && typeof err === 'object' && 'stack' in (err as any) && typeof (err as any).stack === 'string') {
+    description = (err as any).stack as string;
+  } else if (err && typeof err === 'object' && 'message' in (err as any) && typeof (err as any).message === 'string') {
+    description = (err as any).message as string;
+  } else {
+    try {
+      description = String(err);
+    } catch {
+      description = 'Uncaught exception (unstringifiable value)';
+    }
+  }
+  // Apply masking and truncation
+  try {
+    if (state.masking) description = state.masking(description);
+  } catch {}
+  if (description.length > MAX_ERROR_DESCRIPTION_LENGTH) {
+    description = description.slice(0, MAX_ERROR_DESCRIPTION_LENGTH) + '…';
+  }
+
+  // Log the capture and intent to auto-end
+  try {
+    // Log without passing the error object to avoid duplicating the stack we just printed
+    logError('Uncaught exception captured; creating crash event and auto-ending session');
+  } catch {}
+
+  // Best-effort: create crash event if session is initialized
+  try {
+    if (state.sessionId) {
+      // Build structured arguments
+      let exceptionType: string | undefined;
+      let exceptionMessage: string | undefined;
+      try {
+        if (err && typeof err === 'object') {
+          const anyErr = err as any;
+          exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
+          exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
+        }
+      } catch {}
+      if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
+      if (!exceptionMessage) {
+        try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
+      }
+      let threadName = 'main';
+      try {
+        const wt = await import('node:worker_threads');
+        threadName = wt.isMainThread ? 'main' : 'worker';
+      } catch {}
+
+      const argsObj = {
+        exception_type: exceptionType,
+        exception_message: exceptionMessage,
+        thread_name: threadName,
+        exit_code: exitCode,
+      } as const;
+      let serializedArgs = toJsonSafe(argsObj);
+      try {
+        if (state.masking) serializedArgs = mapJsonStrings(serializedArgs, state.masking);
+      } catch {}
+
+      const mod = await import('./event.js');
+      await mod.createEvent({
+        description,
+        result: `process exited with code ${exitCode}`,
+        functionName: '__process_exit__',
+        arguments: serializedArgs,
+      });
+    }
+  } catch (e) {
+    debug('Crash event creation failed', e);
+  }
+
+  // Best-effort: end session as unsuccessful
+  try {
+    if (state.sessionId) {
+      const mod = await import('./session.js');
+      await mod.endSession({});
+      info('Session auto-ended due to uncaught exception');
+    }
+  } catch (e) {
+    debug('Auto-ending session after uncaught exception failed', e);
+  }
+
+  // Flush and shutdown telemetry provider if present
+  try { if (state.provider) { await state.provider.forceFlush(); } } catch (e) { debug('forceFlush error (uncaughtException)', e); }
+  try { if (state.provider) { await state.provider.shutdown(); } } catch (e) { debug('provider shutdown error (uncaughtException)', e); }
+
+  // Exit process explicitly
+  // Note: process.exit does not allow awaiting; cleanup above is best-effort
+  process.exit(exitCode);
+}
 
 export async function init(params: InitParams = {}): Promise<string> {
   const apiKey = params.apiKey ?? process.env.LUCIDIC_API_KEY;
@@ -103,6 +220,12 @@ export async function init(params: InitParams = {}): Promise<string> {
   };
   process.on('SIGINT', () => { if (!autoEnd) { void flushAndExit(); } });
   process.on('SIGTERM', () => { if (!autoEnd) { void flushAndExit(); } });
+
+  // Crash capture: handle uncaught exceptions (on by default; not env-controlled)
+  const captureUncaught = params.captureUncaught ?? true;
+  if (captureUncaught) {
+    process.on('uncaughtException', (err) => { void handleFatalUncaught(err, 1); });
+  }
 
   return session_id;
 }
