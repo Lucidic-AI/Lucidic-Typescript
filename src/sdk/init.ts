@@ -6,6 +6,7 @@ import { buildTelemetry } from '../telemetry/init';
 import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug, error as logError } from '../util/logger';
+import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 
 type State = {
   http: HttpClient | null;
@@ -32,6 +33,20 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
   }
   state.isShuttingDown = true;
 
+  // Print Node-like default stack output directly to stderr (avoid logger prefix)
+  try {
+    if (err && typeof err === 'object' && 'stack' in (err as any) && typeof (err as any).stack === 'string') {
+      // Raw stack for user visibility
+      process.stderr.write(String((err as any).stack) + '\n');
+    } else if (err && typeof err === 'object' && 'message' in (err as any) && typeof (err as any).message === 'string') {
+      process.stderr.write(String((err as any).message) + '\n');
+    } else {
+      process.stderr.write(String(err) + '\n');
+    }
+  } catch {
+    console.error('Error writing error stack to stderr', err);
+  }
+
   // Build detailed description, prefer stack traces
   let description: string;
   if (err && typeof err === 'object' && 'stack' in (err as any) && typeof (err as any).stack === 'string') {
@@ -55,14 +70,51 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
 
   // Log the capture and intent to auto-end
   try {
-    logError('Uncaught exception captured; creating crash event and auto-ending session', err);
+    // Log without passing the error object to avoid duplicating the stack we just printed
+    logError('Uncaught exception captured; creating crash event and auto-ending session');
   } catch {}
 
   // Best-effort: create crash event if session is initialized
   try {
     if (state.sessionId) {
+      // Build structured arguments
+      let exceptionType: string | undefined;
+      let exceptionMessage: string | undefined;
+      try {
+        if (err && typeof err === 'object') {
+          const anyErr = err as any;
+          exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
+          exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
+        }
+      } catch {}
+      if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
+      if (!exceptionMessage) {
+        try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
+      }
+      let threadName = 'main';
+      try {
+        const wt = await import('node:worker_threads');
+        threadName = wt.isMainThread ? 'main' : 'worker';
+      } catch {}
+
+      const argsObj = {
+        exception_type: exceptionType,
+        exception_message: exceptionMessage,
+        thread_name: threadName,
+        exit_code: exitCode,
+      } as const;
+      let serializedArgs = toJsonSafe(argsObj);
+      try {
+        if (state.masking) serializedArgs = mapJsonStrings(serializedArgs, state.masking);
+      } catch {}
+
       const mod = await import('./event.js');
-      await mod.createEvent({ description, result: `process exited with code ${exitCode}` });
+      await mod.createEvent({
+        description,
+        result: `process exited with code ${exitCode}`,
+        functionName: '__process_exit__',
+        arguments: serializedArgs,
+      });
     }
   } catch (e) {
     debug('Crash event creation failed', e);
