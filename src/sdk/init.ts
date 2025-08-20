@@ -72,7 +72,7 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
   try {
     if (state.sessionId) {
       const mod = await import('./session.js');
-      await mod.endSession({ isSuccessful: false, isSuccessfulReason: 'uncaughtException' });
+      await mod.endSession({});
       info('Session auto-ended due to uncaught exception');
     }
   } catch (e) {
