@@ -36,9 +36,19 @@ export async function createEvent(arg1?: string | EventType | FlexibleEventParam
   const decoratorContext = getDecoratorContext();
   const parentEventId = strictParams.parentEventId || decoratorContext?.currentEventId;
   const occurredAt = strictParams.occurredAt || new Date().toISOString();
-  const type: EventType = (strictParams as any).type || 'generic';
-
-  const payload = (strictParams as any).payload ?? { details: '' };
+  
+  // Extract event type and payload based on discriminated union
+  let type: EventType;
+  let payload: any;
+  
+  if ('type' in strictParams && strictParams.type) {
+    type = strictParams.type;
+    payload = strictParams.payload;
+  } else {
+    // GenericEventParams may omit type
+    type = 'generic';
+    payload = strictParams.payload ?? { details: '' };
+  }
 
   debug('Creating event', { type, parentEventId });
   const res = new EventResource(http);
@@ -46,11 +56,11 @@ export async function createEvent(arg1?: string | EventType | FlexibleEventParam
     type,
     parentEventId,
     occurredAt,
-    tags: (strictParams as any).tags,
-    metadata: (strictParams as any).metadata,
+    tags: strictParams.tags,
+    metadata: strictParams.metadata,
     payload,
-    duration: (strictParams as any).duration,
-    screenshots: (strictParams as any).screenshots,
+    duration: strictParams.duration,
+    screenshots: strictParams.screenshots,
     sessionId,
     agentId: getAgentId(),
   });
