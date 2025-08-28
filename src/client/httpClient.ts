@@ -59,5 +59,17 @@ export class HttpClient {
     if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
     return res.json() as Promise<T>;
   }
+
+  async patch<T>(endpoint: string, body?: Record<string, any>): Promise<T> {
+    const url = this.baseUrl + '/' + endpoint;
+    debug(`PATCH ${url}`, body);
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: this.headers(),
+      body: JSON.stringify({ ...(body ?? {}), current_time: new Date().toISOString() }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json() as Promise<T>;
+  }
 }
 

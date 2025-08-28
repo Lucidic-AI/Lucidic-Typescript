@@ -5,128 +5,78 @@ import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 
 type AnyFn = (...args: any[]) => any;
 
-type DecoratorStore = { currentStepId?: string; currentEventId?: string };
-const als = new AsyncLocalStorage<DecoratorStore>();
-
-export function getDecoratorStep(): string | undefined {
-  return als.getStore()?.currentStepId;
-}
+export type DecoratorContext = { currentEventId?: string; eventStack: string[] };
+const als = new AsyncLocalStorage<DecoratorContext>();
 
 export function getDecoratorEvent(): string | undefined {
   return als.getStore()?.currentEventId;
 }
 
-export function step(options: {
-  state?: string;
-  action?: string;
-  goal?: string;
-  screenshotPath?: string;
-  evalScore?: number;
-  evalDescription?: string;
-} = {}) {
+export function event(options: { tags?: string[]; metadata?: Record<string, any>; misc?: Record<string, any> } = {}) {
   return function <F extends AnyFn>(fn: F): F {
     const wrapper = async function(this: any, ...args: any[]) {
-      // If not initialized or no session, run through
-      if (!getSessionId()) {
-        debug('No active session, running function without step decorator');
-        return await fn.apply(this, args);
-      }
-
-      const mod = await import('./step');
-      const stepId = await mod.createStep(options);
-      const prev = als.getStore() ?? {};
-      return await als.run({ ...prev, currentStepId: stepId }, async () => {
-        try {
-          const result = await fn.apply(this, args);
-          await mod.endStep({ stepId });
-          return result;
-        } catch (e) {
-          await mod.endStep({ stepId, evalScore: 0.0, evalDescription: `Step failed with error: ${String(e)}` });
-          throw e;
-        }
-      });
-    } as AnyFn;
-    return wrapper as F;
-  };
-}
-
-export function event(options: {
-  description?: string;
-  result?: string;
-  model?: string;
-  costAdded?: number;
-} = {}) {
-  return function <F extends AnyFn>(fn: F): F {
-    const wrapper = async function(this: any, ...args: any[]) {
-      // If not initialized or no session, run through
       if (!getSessionId()) {
         debug('No active session, running function without event decorator');
         return await fn.apply(this, args);
       }
 
-      const mod = await import('./event');
+      const { createEvent, updateEvent } = await import('./event.js');
+      const { createErrorEvent } = await import('./event-helpers.js');
       const mask = getMask();
 
-      // Build description from inputs if not provided
-      let description = options.description;
-      if (!description) {
-        const parts: string[] = [];
-        for (let i = 0; i < args.length; i++) {
-          const val = args[i];
-          let printed: string;
-          try { printed = JSON.stringify(val); } catch { printed = String(val); }
-          parts.push(`arg${i}=${printed}`);
-        }
-        description = `${fn.name || 'anonymous'}(${parts.join(', ')})`;
-        if (mask) description = mask(description);
-        if (description.length > 4096) description = description.slice(0, 4096) + '…';
-      }
-
-      // Link to active step if present
-      const stepId = getDecoratorStep();
       const functionName = fn.name || 'anonymous';
       let serializedArgs = toJsonSafe(args);
-      if (mask) {
-        serializedArgs = mapJsonStrings(serializedArgs, mask);
+      if (mask) serializedArgs = mapJsonStrings(serializedArgs, mask);
+
+      const parentContext = als.getStore();
+      const parentEventId = parentContext?.currentEventId;
+
+      const eventId = await createEvent({
+        type: 'function_call',
+        parentEventId,
+        payload: {
+          function_name: functionName,
+          arguments: serializedArgs,
+          misc: options.misc,
+        },
+        tags: options.tags,
+        metadata: options.metadata,
+      } as any);
+
+      if (!eventId) {
+        return await fn.apply(this, args);
       }
-      const eventId = await mod.createEvent({
-        description,
-        stepId,
-        model: options.model,
-        costAdded: options.costAdded,
-        functionName,
-        arguments: serializedArgs,
-      });
-      const prev = als.getStore() ?? {};
-      return await als.run({ ...prev, currentEventId: eventId }, async () => {
+
+      const newContext: DecoratorContext = {
+        currentEventId: eventId,
+        eventStack: [...(parentContext?.eventStack || []), eventId],
+      };
+
+      return await als.run(newContext, async () => {
+        const startTime = Date.now();
         try {
           const result = await fn.apply(this, args);
-          let finalResult = options.result;
-          if (!finalResult) {
-            try { finalResult = JSON.stringify(result); } catch { finalResult = String(result); }
-            if (mask) finalResult = mask(finalResult);
-            if (finalResult.length > 4096) finalResult = finalResult.slice(0, 4096) + '…';
-          }
-          await mod.endEvent({
-            eventId,
-            result: finalResult,
-            model: options.model,
-            costAdded: options.costAdded,
-            functionName,
-            arguments: serializedArgs,
+          let serializedReturn = toJsonSafe(result);
+          if (mask) serializedReturn = mapJsonStrings(serializedReturn, mask);
+          const duration = (Date.now() - startTime) / 1000;
+          await updateEvent(eventId, {
+            duration,
+            payload: {
+              function_name: functionName,
+              arguments: serializedArgs,
+              return_value: serializedReturn,
+              misc: options.misc,
+            },
           });
           return result;
-        } catch (e) {
-          const errStr = `Error: ${String(e)}`;
-          await mod.endEvent({
-            eventId,
-            result: mask ? mask(errStr) : errStr,
-            model: options.model,
-            costAdded: options.costAdded,
-            functionName,
-            arguments: serializedArgs,
+        } catch (error) {
+          const duration = (Date.now() - startTime) / 1000;
+          await createErrorEvent(error as Error, eventId);
+          await updateEvent(eventId, {
+            duration,
+            metadata: { ...(options.metadata || {}), error: true, error_message: String(error) },
           });
-          throw e;
+          throw error;
         }
       });
     } as AnyFn;
@@ -134,18 +84,20 @@ export function event(options: {
   };
 }
 
-// Optional helpers to update current step/event using ALS context
-export async function updateCurrentStep(params: { stepId?: string } & Record<string, any>): Promise<void> {
-  const mod = await import('./step');
-  const id = (params as any).stepId ?? getDecoratorStep();
-  if (!id) throw new Error('No active step to update');
-  await mod.updateStep({ ...(params as any), stepId: id });
-}
-
+// Optional helpers to update current event using ALS context
 export async function updateCurrentEvent(params: { eventId?: string } & Record<string, any>): Promise<void> {
   const mod = await import('./event');
   const id = (params as any).eventId ?? getDecoratorEvent();
   if (!id) throw new Error('No active event to update');
-  await mod.updateEvent({ ...(params as any), eventId: id });
+  const { eventId, ...rest } = params as any;
+  await mod.updateEvent(id, rest);
+}
+
+export function getDecoratorContext() { return als.getStore(); }
+
+export async function withParentEvent<T>(parentEventId: string, fn: () => Promise<T>): Promise<T> {
+  const parent = als.getStore();
+  const ctx: DecoratorContext = { currentEventId: parentEventId, eventStack: [...(parent?.eventStack || []), parentEventId] };
+  return als.run(ctx, fn);
 }
 

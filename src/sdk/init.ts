@@ -108,13 +108,8 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
         if (state.masking) serializedArgs = mapJsonStrings(serializedArgs, state.masking);
       } catch {}
 
-      const mod = await import('./event.js');
-      await mod.createEvent({
-        description,
-        result: `process exited with code ${exitCode}`,
-        functionName: '__process_exit__',
-        arguments: serializedArgs,
-      });
+      const helpers = await import('./event-helpers.js');
+      await helpers.createErrorEvent(new Error(description), undefined);
     }
   } catch (e) {
     debug('Crash event creation failed', e);
