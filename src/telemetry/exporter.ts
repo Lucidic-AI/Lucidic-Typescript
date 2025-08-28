@@ -3,7 +3,7 @@ import { SpanStatusCode } from '@opentelemetry/api';
 
 import { extractPrompts, extractCompletions, extractImages, detectIsLlmSpan, extractModel } from './extract.js';
 import { getSessionId } from '../sdk/init.js';
-import { createLLMEvent, createFunctionEvent } from '../sdk/event-helpers.js';
+import { createEvent } from '../sdk/event.js';
 import { getDecoratorContext } from '../sdk/decorators.js';
 import { debug } from '../util/logger.js';
 
@@ -31,7 +31,7 @@ export class LucidicSpanExporter implements SpanExporter {
           const toolResult = attrs['ai.toolCall.result'] as string | undefined;
           let parsedArgs: any;
           try { parsedArgs = rawArgs ? JSON.parse(rawArgs) : undefined; } catch { parsedArgs = rawArgs; }
-          await createFunctionEvent(toolName || 'unknown_tool', parsedArgs, toolResult, decoratorContext?.currentEventId);
+          await createEvent({ type: 'function_call', function_name: toolName || 'unknown_tool', arguments: parsedArgs, return_value: toolResult, parentEventId: decoratorContext?.currentEventId });
         } else {
           const prompts = extractPrompts(attrs);
           const completions = extractCompletions(span, attrs) ?? (span.status.code === SpanStatusCode.ERROR ? `Error: ${span.status.message ?? 'Unknown error'}` : 'Response received');
@@ -41,13 +41,8 @@ export class LucidicSpanExporter implements SpanExporter {
           const outputTokens = (attrs['gen_ai.usage.completion_tokens'] as number) || (attrs['llm.usage.completion_tokens'] as number) || 0;
           const provider = this.detectProvider(model, attrs);
           const messages = this.parseMessagesFromPrompts(prompts ?? '');
-          await createLLMEvent(provider, model, messages, completions, {
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
-          }, decoratorContext?.currentEventId);
-          if (images.length > 0) {
-            debug(`LLM span has ${images.length} images - handle separately if needed`);
-          }
+          await createEvent({ type: 'llm_generation', provider, model, messages, output: completions || '', input_tokens: inputTokens, output_tokens: outputTokens, parentEventId: decoratorContext?.currentEventId, span_name: span.name, span_duration: span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined });
+          if (images.length > 0) { debug(`LLM span has ${images.length} images - handle separately if needed`); }
         }
       }
       resultCallback({ code: 0 });

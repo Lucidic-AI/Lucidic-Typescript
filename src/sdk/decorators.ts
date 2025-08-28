@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { debug } from '../util/logger';
 import { getMask, getSessionId } from './init';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
+import { FlexibleEventParams } from '../client/types';
 
 type AnyFn = (...args: any[]) => any;
 
@@ -31,17 +32,16 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
       const parentContext = als.getStore();
       const parentEventId = parentContext?.currentEventId;
 
-      const eventId = await createEvent({
+      const params: FlexibleEventParams = {
         type: 'function_call',
+        function_name: functionName,
+        arguments: serializedArgs,
         parentEventId,
-        payload: {
-          function_name: functionName,
-          arguments: serializedArgs,
-          misc: options.misc,
-        },
         tags: options.tags,
         metadata: options.metadata,
-      } as any);
+        ...(options.misc || {}),
+      };
+      const eventId = await createEvent(params);
 
       if (!eventId) {
         return await fn.apply(this, args);
@@ -59,15 +59,7 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
           let serializedReturn = toJsonSafe(result);
           if (mask) serializedReturn = mapJsonStrings(serializedReturn, mask);
           const duration = (Date.now() - startTime) / 1000;
-          await updateEvent(eventId, {
-            duration,
-            payload: {
-              function_name: functionName,
-              arguments: serializedArgs,
-              return_value: serializedReturn,
-              misc: options.misc,
-            },
-          });
+          await updateEvent(eventId, { duration, payload: { function_name: functionName, arguments: serializedArgs, return_value: serializedReturn, misc: options.misc } });
           return result;
         } catch (error) {
           const duration = (Date.now() - startTime) / 1000;

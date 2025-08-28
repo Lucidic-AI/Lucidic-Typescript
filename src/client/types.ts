@@ -147,3 +147,61 @@ export type EventParams =
   | ErrorTracebackEventParams
   | GenericEventParams;
 
+// Flexible parameters for user-facing createEvent API
+export interface FlexibleEventParams extends Partial<BaseEventParams> {
+  type?: EventType;
+  // LLM
+  provider?: string;
+  model?: string;
+  messages?: any[];
+  output?: any;
+  completion?: any;
+  response?: any;
+  prompt?: string;
+  input_tokens?: number;
+  output_tokens?: number;
+  cache?: string;
+  cost?: number;
+  tool_calls?: any[];
+  thinking?: string[];
+  params?: Record<string, any>;
+  // Function
+  functionName?: string;
+  function_name?: string;
+  arguments?: any;
+  args?: any;
+  return_value?: any;
+  returnValue?: any;
+  result?: any;
+  // Error
+  error?: string | Error;
+  traceback?: string;
+  stack?: string;
+  stackTrace?: string;
+  exception?: any;
+  // Generic
+  details?: string;
+  description?: string;
+  message?: string;
+  // Common
+  status?: string;
+  raw?: any;
+  // Any additional
+  [key: string]: any;
+}
+
+export const FIELD_MAPPINGS = {
+  completion: 'output',
+  response: 'output',
+  prompt: 'messages',
+  functionName: 'function_name',
+  args: 'arguments',
+  returnValue: 'return_value',
+  result: 'return_value',
+  stack: 'traceback',
+  stackTrace: 'traceback',
+  exception: 'error',
+  description: 'details',
+  message: 'details',
+} as const;
+

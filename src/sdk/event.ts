@@ -2,53 +2,43 @@ import {
   EventParams,
   EventType,
   BaseEventParams,
-  LLMGenerationEventParams,
-  FunctionCallEventParams,
-  ErrorTracebackEventParams,
-  GenericEventParams
+  FlexibleEventParams,
 } from '../client/types';
 import { getHttp, getSessionId, getAgentId } from './init';
 import { EventResource } from '../client/resources/event';
 import { getDecoratorContext } from './decorators';
 import { debug } from '../util/logger';
+import { EventBuilder } from './event-builder';
 
-function isLLMGenerationEvent(params: EventParams): params is LLMGenerationEventParams {
-  return (params as any).type === 'llm_generation';
-}
+// Type guard helpers removed; flexible parameter system handles mapping
 
-function isFunctionCallEvent(params: EventParams): params is FunctionCallEventParams {
-  return (params as any).type === 'function_call';
-}
-
-function isErrorTracebackEvent(params: EventParams): params is ErrorTracebackEventParams {
-  return (params as any).type === 'error_traceback';
-}
-
-function isGenericEvent(params: EventParams): params is GenericEventParams {
-  return !(params as any).type || (params as any).type === 'generic';
-}
-
-export async function createEvent(params: EventParams = {} as GenericEventParams): Promise<string | undefined> {
+export async function createEvent(description: string): Promise<string | undefined>;
+export async function createEvent(type: EventType, details: string): Promise<string | undefined>;
+export async function createEvent(params: FlexibleEventParams): Promise<string | undefined>;
+export async function createEvent(arg1?: string | EventType | FlexibleEventParams, arg2?: string): Promise<string | undefined> {
   const http = getHttp();
   const sessionId = getSessionId();
   if (!sessionId) return;
 
-  const type: EventType = (params as any).type ?? 'generic';
+  // Build flexible params from overload args
+  let flexibleParams: FlexibleEventParams;
+  if (typeof arg1 === 'string' && !arg2) {
+    flexibleParams = { details: arg1 };
+  } else if (typeof arg1 === 'string' && typeof arg2 === 'string') {
+    flexibleParams = { type: arg1 as EventType, details: arg2 };
+  } else {
+    flexibleParams = (arg1 as FlexibleEventParams) || {};
+  }
+
+  // Convert to strict typed params
+  const strictParams = EventBuilder.build(flexibleParams);
 
   const decoratorContext = getDecoratorContext();
-  const parentEventId = (params as any).parentEventId ?? decoratorContext?.currentEventId;
-  const occurredAt = (params as any).occurredAt ?? new Date().toISOString();
+  const parentEventId = strictParams.parentEventId || decoratorContext?.currentEventId;
+  const occurredAt = strictParams.occurredAt || new Date().toISOString();
+  const type: EventType = (strictParams as any).type || 'generic';
 
-  let payload: any;
-  if (isLLMGenerationEvent(params)) {
-    payload = params.payload;
-  } else if (isFunctionCallEvent(params)) {
-    payload = params.payload;
-  } else if (isErrorTracebackEvent(params)) {
-    payload = params.payload;
-  } else if (isGenericEvent(params)) {
-    payload = params.payload ?? { details: '' };
-  }
+  const payload = (strictParams as any).payload ?? { details: '' };
 
   debug('Creating event', { type, parentEventId });
   const res = new EventResource(http);
@@ -56,11 +46,11 @@ export async function createEvent(params: EventParams = {} as GenericEventParams
     type,
     parentEventId,
     occurredAt,
-    tags: (params as any).tags,
-    metadata: (params as any).metadata,
+    tags: (strictParams as any).tags,
+    metadata: (strictParams as any).metadata,
     payload,
-    duration: (params as any).duration,
-    screenshots: (params as any).screenshots,
+    duration: (strictParams as any).duration,
+    screenshots: (strictParams as any).screenshots,
     sessionId,
     agentId: getAgentId(),
   });
@@ -73,13 +63,6 @@ export async function updateEvent(eventId: string, updates: Partial<BaseEventPar
   await res.updateEvent(eventId, updates);
 }
 
-export async function endEvent(_eventId: string): Promise<void> {
-  // In new model, no-op placeholder to keep API surface if needed by callers
-}
+export async function endEvent(_eventId: string): Promise<void> {}
 
-export function createEventOverload(params?: GenericEventParams): Promise<string | undefined>;
-export function createEventOverload(params: LLMGenerationEventParams): Promise<string | undefined>;
-export function createEventOverload(params: FunctionCallEventParams): Promise<string | undefined>;
-export function createEventOverload(params: ErrorTracebackEventParams): Promise<string | undefined>;
-export function createEventOverload(params: EventParams): Promise<string | undefined>;
-
+// Note: Overloads are unnecessary since createEvent accepts the union type directly.

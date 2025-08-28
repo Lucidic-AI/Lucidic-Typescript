@@ -1,31 +1,9 @@
-import {
-  EventType,
-  LLMGenerationPayload,
-  FunctionCallPayload,
-  ErrorTracebackPayload,
-  GenericEventPayload,
-} from '../client/types';
+import { FlexibleEventParams } from '../client/types';
 import { createEvent } from './event';
 import { toJsonSafe } from '../util/serialization';
 
-export function createEventWithMisc<T extends Record<string, any>>(
-  type: EventType,
-  payload: Partial<LLMGenerationPayload | FunctionCallPayload | ErrorTracebackPayload | GenericEventPayload>,
-  misc: T,
-  baseParams?: {
-    parentEventId?: string;
-    tags?: string[];
-    metadata?: Record<string, any>;
-    duration?: number;
-    screenshots?: string[];
-  }
-): Promise<string | undefined> {
-  const fullPayload = { ...payload, misc } as any;
-  return createEvent({
-    ...(baseParams || {}),
-    type,
-    payload: fullPayload,
-  } as any);
+export function createEventWithMisc(params: FlexibleEventParams, misc: Record<string, any>): Promise<string | undefined> {
+  return createEvent({ ...(params || {}), ...(misc || {}) });
 }
 
 export function createLLMEvent(
@@ -38,13 +16,13 @@ export function createLLMEvent(
 ): Promise<string | undefined> {
   return createEvent({
     type: 'llm_generation',
+    provider,
+    model,
+    messages,
+    output: response,
+    ...(usage || {}),
     parentEventId,
-    payload: {
-      request: { provider, model, messages },
-      response: { output: response },
-      usage: usage || {},
-    },
-  } as any);
+  });
 }
 
 export function createFunctionEvent(
@@ -55,35 +33,19 @@ export function createFunctionEvent(
 ): Promise<string | undefined> {
   return createEvent({
     type: 'function_call',
+    function_name: functionName,
+    arguments: toJsonSafe(args),
+    return_value: returnValue == null ? undefined : toJsonSafe(returnValue),
     parentEventId,
-    payload: {
-      function_name: functionName,
-      arguments: toJsonSafe(args),
-      return_value: returnValue == null ? undefined : toJsonSafe(returnValue),
-    },
-  } as any);
+  });
 }
 
 export function createErrorEvent(error: string | Error, parentEventId?: string): Promise<string | undefined> {
-  const message = error instanceof Error ? error.message : String(error);
-  const traceback = error instanceof Error ? error.stack : undefined;
-  return createEvent({
-    type: 'error_traceback',
-    parentEventId,
-    payload: { error: message, traceback: traceback || '' },
-  } as any);
+  return createEvent({ type: 'error_traceback', error, parentEventId });
 }
 
-export function createGenericEvent(
-  details?: string,
-  misc?: Record<string, any>,
-  parentEventId?: string
-): Promise<string | undefined> {
-  return createEvent({
-    type: 'generic',
-    parentEventId,
-    payload: { details: details || '', misc },
-  } as any);
+export function createGenericEvent(details?: string, misc?: Record<string, any>, parentEventId?: string): Promise<string | undefined> {
+  return createEvent({ type: 'generic', details, parentEventId, ...(misc || {}) });
 }
 
 
