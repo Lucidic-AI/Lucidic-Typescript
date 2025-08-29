@@ -112,8 +112,18 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
         if (state.masking) serializedArgs = mapJsonStrings(serializedArgs, state.masking);
       } catch {}
 
+      // Flush any pending events first
+      if (state.eventQueue) {
+        try { await state.eventQueue.forceFlush(); } catch (e) { debug('Failed to flush events before crash event', e); }
+      }
+      
       const helpers = await import('./event-helpers.js');
-      await helpers.createErrorEvent(new Error(description), undefined);
+      helpers.createErrorEvent(new Error(description), undefined);
+      
+      // Flush the crash event
+      if (state.eventQueue) {
+        try { await state.eventQueue.forceFlush(); } catch (e) { debug('Failed to flush crash event', e); }
+      }
     }
   } catch (e) {
     debug('Crash event creation failed', e);

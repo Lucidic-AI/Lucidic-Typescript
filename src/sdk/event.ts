@@ -11,10 +11,10 @@ import * as crypto from 'crypto';
 
 // Type guard helpers removed; flexible parameter system handles mapping
 
-export async function createEvent(description: string): Promise<string | undefined>;
-export async function createEvent(type: EventType, details: string): Promise<string | undefined>;
-export async function createEvent(params: FlexibleEventParams): Promise<string | undefined>;
-export async function createEvent(arg1?: string | EventType | FlexibleEventParams, arg2?: string): Promise<string | undefined> {
+export function createEvent(description: string): string | undefined;
+export function createEvent(type: EventType, details: string): string | undefined;
+export function createEvent(params: FlexibleEventParams): string | undefined;
+export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg2?: string): string | undefined {
   const sessionId = getSessionId();
   if (!sessionId) return;
   const eventQueue = getEventQueue();
@@ -73,3 +73,17 @@ export async function createEvent(arg1?: string | EventType | FlexibleEventParam
 }
 
 export async function endEvent(_eventId: string): Promise<void> {}
+
+export async function flush(): Promise<void> {
+  const eventQueue = getEventQueue();
+  if (eventQueue) {
+    return eventQueue.flush();
+  }
+}
+
+export async function forceFlush(): Promise<void> {
+  const eventQueue = getEventQueue();
+  if (eventQueue) {
+    return eventQueue.forceFlush();
+  }
+}
