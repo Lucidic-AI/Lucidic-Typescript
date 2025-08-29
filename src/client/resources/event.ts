@@ -20,7 +20,7 @@ export class EventResource {
 
   async createEvent(params: CreateEventApiPayload): Promise<{ blob_url?: string }> {
     debug('Creating event', { type: params.type, clientId: params.client_event_id, parentId: params.parent_client_event_id });
-    return this.http.post<{ blob_url?: string }>('api/events', params);
+    return this.http.post<{ blob_url?: string }>('events', params);
   }
 }
 

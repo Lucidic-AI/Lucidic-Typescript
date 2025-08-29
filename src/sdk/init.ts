@@ -9,6 +9,7 @@ import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug, error as logError } from '../util/logger';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
+import dotenv from 'dotenv';
 
 type State = {
   http: HttpClient | null;
@@ -150,6 +151,9 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
 }
 
 export async function init(params: InitParams = {}): Promise<string> {
+  
+  dotenv.config();
+
   const apiKey = params.apiKey ?? process.env.LUCIDIC_API_KEY;
   const agentId = params.agentId ?? process.env.LUCIDIC_AGENT_ID;
   if (!apiKey) throw new Error('LUCIDIC_API_KEY not provided');

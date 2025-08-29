@@ -2,6 +2,7 @@ import { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-base';
 import { SpanStatusCode } from '@opentelemetry/api';
 
 import { extractPrompts, extractCompletions, extractImages, detectIsLlmSpan, extractModel } from './extract.js';
+import { calculateCostUSD } from './pricing.js';
 import { getSessionId } from '../sdk/init.js';
 import { createEvent } from '../sdk/event.js';
 import { getDecoratorContext } from '../sdk/decorators.js';
@@ -40,8 +41,9 @@ export class LucidicSpanExporter implements SpanExporter {
           const inputTokens = (attrs['gen_ai.usage.prompt_tokens'] as number) || (attrs['llm.usage.prompt_tokens'] as number) || 0;
           const outputTokens = (attrs['gen_ai.usage.completion_tokens'] as number) || (attrs['llm.usage.completion_tokens'] as number) || 0;
           const provider = this.detectProvider(model, attrs);
+          const cost = calculateCostUSD(model, attrs) ?? undefined;
           const messages = this.parseMessagesFromPrompts(prompts ?? '');
-          createEvent({ type: 'llm_generation', provider, model, messages, output: completions || '', input_tokens: inputTokens, output_tokens: outputTokens, parentEventId: decoratorContext?.currentEventId, span_name: span.name, span_duration: span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined });
+          createEvent({ type: 'llm_generation', provider, model, messages, output: completions || '', input_tokens: inputTokens, output_tokens: outputTokens, cost, parentEventId: decoratorContext?.currentEventId, span_name: span.name, span_duration: span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined });
           if (images.length > 0) { debug(`LLM span has ${images.length} images - handle separately if needed`); }
         }
       }
