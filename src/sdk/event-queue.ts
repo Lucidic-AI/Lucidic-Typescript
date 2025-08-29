@@ -126,17 +126,31 @@ export class EventQueue {
   private generatePreview(type: EventType, payload: any): any {
     switch (type) {
       case 'llm_generation': {
-        const req = payload.request || {};
-        const usage = payload.usage || {};
+        const req = payload?.request || {};
+        const usage = payload?.usage || {};
+        const rawMessages = Array.isArray(req.messages) ? req.messages.slice(0, 5) : [];
+        const messages = rawMessages.map((m: any) => {
+          const msg: any = { ...m };
+          const content = m?.content;
+          msg.content = content != null ? String(content).slice(0, 200) : undefined;
+          return msg;
+        });
+        const resp = payload?.response || {};
+        const out = resp && 'output' in resp ? resp.output : undefined;
+        const outputPreview = out != null ? String(out).slice(0, 200) : undefined;
         return {
           request: {
             model: req.model ? String(req.model).slice(0, 200) : undefined,
             provider: req.provider ? String(req.provider).slice(0, 200) : undefined,
+            messages,
           },
           usage: {
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
             cost: usage.cost,
+          },
+          response: {
+            output: outputPreview,
           },
         };
       }
