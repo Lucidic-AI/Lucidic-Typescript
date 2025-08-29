@@ -153,10 +153,12 @@ export class EventQueue {
   private async uploadBlob(blobUrl: string, payload: any) {
     const jsonStr = JSON.stringify(payload, null, 0);
     const compressed = await gzipAsync(Buffer.from(jsonStr, 'utf-8'));
+    // Node fetch BodyInit does not accept Buffer in types; use Uint8Array view
+    const body = new Uint8Array(compressed);
     const response = await fetch(blobUrl, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' },
-      body: compressed,
+      body,
     });
     if (!response.ok) throw new Error(`Blob upload failed: ${response.status} ${response.statusText}`);
   }
