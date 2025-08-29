@@ -4,7 +4,7 @@ import {
   BaseEventParams,
   FlexibleEventParams,
 } from '../client/types';
-import { getHttp, getSessionId, getAgentId } from './init';
+import { getHttp, getSessionId, getAgentId, getEventQueue } from './init';
 import { EventResource } from '../client/resources/event';
 import { getDecoratorContext } from './decorators';
 import { debug } from '../util/logger';
@@ -50,29 +50,11 @@ export async function createEvent(arg1?: string | EventType | FlexibleEventParam
     payload = strictParams.payload ?? { details: '' };
   }
 
-  debug('Creating event', { type, parentEventId });
+  // immediate return with UUID handled below
   const res = new EventResource(http);
-  const { event_id } = await res.initEvent({
-    type,
-    parentEventId,
-    occurredAt,
-    tags: strictParams.tags,
-    metadata: strictParams.metadata,
-    payload,
-    duration: strictParams.duration,
-    screenshots: strictParams.screenshots,
-    sessionId,
-    agentId: getAgentId(),
-  });
-  return event_id;
-}
-
-export async function updateEvent(eventId: string, updates: Partial<BaseEventParams> & { payload?: any }): Promise<void> {
-  const http = getHttp();
-  const res = new EventResource(http);
-  await res.updateEvent(eventId, updates);
+  // event creation will be queued; nothing to await here
+  const clientEventId = strictParams.eventId || '';
+  return clientEventId || undefined;
 }
 
 export async function endEvent(_eventId: string): Promise<void> {}
-
-// Note: Overloads are unnecessary since createEvent accepts the union type directly.

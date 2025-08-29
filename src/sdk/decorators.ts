@@ -3,6 +3,7 @@ import { debug } from '../util/logger';
 import { getMask, getSessionId } from './init';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 import { FlexibleEventParams } from '../client/types';
+import * as crypto from 'crypto';
 
 type AnyFn = (...args: any[]) => any;
 
@@ -21,8 +22,7 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
         return await fn.apply(this, args);
       }
 
-      const { createEvent, updateEvent } = await import('./event.js');
-      const { createErrorEvent } = await import('./event-helpers.js');
+      const { createEvent } = await import('./event.js');
       const mask = getMask();
 
       const functionName = fn.name || 'anonymous';
@@ -32,7 +32,9 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
       const parentContext = als.getStore();
       const parentEventId = parentContext?.currentEventId;
 
+      const clientEventId = crypto.randomUUID();
       const params: FlexibleEventParams = {
+        eventId: clientEventId,
         type: 'function_call',
         function_name: functionName,
         arguments: serializedArgs,
@@ -41,15 +43,10 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
         metadata: options.metadata,
         ...(options.misc || {}),
       };
-      const eventId = await createEvent(params);
-
-      if (!eventId) {
-        return await fn.apply(this, args);
-      }
 
       const newContext: DecoratorContext = {
-        currentEventId: eventId,
-        eventStack: [...(parentContext?.eventStack || []), eventId],
+        currentEventId: clientEventId,
+        eventStack: [...(parentContext?.eventStack || []), clientEventId],
       };
 
       return await als.run(newContext, async () => {
@@ -59,15 +56,12 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
           let serializedReturn = toJsonSafe(result);
           if (mask) serializedReturn = mapJsonStrings(serializedReturn, mask);
           const duration = (Date.now() - startTime) / 1000;
-          await updateEvent(eventId, { duration, payload: { function_name: functionName, arguments: serializedArgs, return_value: serializedReturn, misc: options.misc } });
+          createEvent({ ...params, return_value: serializedReturn, duration });
           return result;
         } catch (error) {
           const duration = (Date.now() - startTime) / 1000;
-          await createErrorEvent(error as Error, eventId);
-          await updateEvent(eventId, {
-            duration,
-            metadata: { ...(options.metadata || {}), error: true, error_message: String(error) },
-          });
+          createEvent({ ...params, return_value: null, duration, metadata: { ...(options.metadata || {}), error: true, error_message: String(error) } });
+          createEvent({ parentEventId: clientEventId, type: 'error_traceback', error: error instanceof Error ? error.message : String(error), traceback: error instanceof Error ? error.stack : undefined });
           throw error;
         }
       });
@@ -76,14 +70,7 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
   };
 }
 
-// Optional helpers to update current event using ALS context
-export async function updateCurrentEvent(params: { eventId?: string } & Record<string, any>): Promise<void> {
-  const mod = await import('./event');
-  const id = (params as any).eventId ?? getDecoratorEvent();
-  if (!id) throw new Error('No active event to update');
-  const { eventId, ...rest } = params as any;
-  await mod.updateEvent(id, rest);
-}
+// Optional helpers use ALS context
 
 export function getDecoratorContext() { return als.getStore(); }
 

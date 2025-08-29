@@ -1,6 +1,8 @@
 import { InitParams, ProviderType } from '../client/types';
 import { HttpClient } from '../client/httpClient';
 import { SessionResource } from '../client/resources/session';
+import { EventResource } from '../client/resources/event';
+import { EventQueue } from './event-queue';
 import { PromptResource } from '../client/resources/prompt';
 import { buildTelemetry } from '../telemetry/init';
 import { trace } from '@opentelemetry/api';
@@ -16,12 +18,14 @@ type State = {
   prompt?: PromptResource;
   isShuttingDown?: boolean;
   provider?: NodeTracerProvider | null;
+  eventQueue?: EventQueue | null;
 };
 
 const state: State = {
   http: null,
   sessionId: null,
   agentId: null,
+  eventQueue: null,
 };
 
 const MAX_ERROR_DESCRIPTION_LENGTH = 16384;
@@ -152,6 +156,9 @@ export async function init(params: InitParams = {}): Promise<string> {
   state.masking = params.maskingFunction;
   state.prompt = new PromptResource(http, agentId);
 
+  // Initialize event queue with POST-only event resource
+  state.eventQueue = new EventQueue(new EventResource(http));
+
   // Telemetry
   const providers = (params.providers ?? []) as ProviderType[];
   const exportMode = (process.env.LUCIDIC_EXPORT_MODE ?? '').toLowerCase();
@@ -174,7 +181,8 @@ export async function init(params: InitParams = {}): Promise<string> {
       if (state.isShuttingDown) return;
       state.isShuttingDown = true;
       try {
-        info('Auto-ending session on shutdown...');
+        info('Flushing events and auto-ending session on shutdown...');
+        try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (auto-end)', e); }
         await import('./session.js').then(m => m.endSession({}));
         // Ensure any batched spans are exported before process exits
         if (state.provider) {
@@ -205,6 +213,7 @@ export async function init(params: InitParams = {}): Promise<string> {
     if (state.isShuttingDown) return;
     state.isShuttingDown = true;
     try {
+      try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
       if (state.provider) {
         try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
         try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error (signal)', e); }
@@ -236,6 +245,7 @@ export function getPromptResource(): PromptResource {
   if (!state.prompt) throw new Error('Lucidic SDK not initialized');
   return state.prompt;
 }
+export function getEventQueue(): EventQueue | null { return state.eventQueue ?? null; }
 
 // Return an OTel tracer from our local provider when available; fallback to global tracer
 export function getLucidicTracer(name: string = 'ai', version?: string) {
