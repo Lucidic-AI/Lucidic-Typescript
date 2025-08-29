@@ -4,11 +4,10 @@ import {
   BaseEventParams,
   FlexibleEventParams,
 } from '../client/types';
-import { getHttp, getSessionId, getAgentId, getEventQueue } from './init';
-import { EventResource } from '../client/resources/event';
+import { getSessionId, getEventQueue } from './init';
 import { getDecoratorContext } from './decorators';
-import { debug } from '../util/logger';
 import { EventBuilder } from './event-builder';
+import * as crypto from 'crypto';
 
 // Type guard helpers removed; flexible parameter system handles mapping
 
@@ -16,9 +15,10 @@ export async function createEvent(description: string): Promise<string | undefin
 export async function createEvent(type: EventType, details: string): Promise<string | undefined>;
 export async function createEvent(params: FlexibleEventParams): Promise<string | undefined>;
 export async function createEvent(arg1?: string | EventType | FlexibleEventParams, arg2?: string): Promise<string | undefined> {
-  const http = getHttp();
   const sessionId = getSessionId();
   if (!sessionId) return;
+  const eventQueue = getEventQueue();
+  if (!eventQueue) return;
 
   // Build flexible params from overload args
   let flexibleParams: FlexibleEventParams;
@@ -50,10 +50,25 @@ export async function createEvent(arg1?: string | EventType | FlexibleEventParam
     payload = strictParams.payload ?? { details: '' };
   }
 
-  // immediate return with UUID handled below
-  const res = new EventResource(http);
-  // event creation will be queued; nothing to await here
-  const clientEventId = strictParams.eventId || '';
+  // Ensure a client event id exists
+  const clientEventId = strictParams.eventId || crypto.randomUUID();
+
+  // Queue the event for asynchronous delivery
+  eventQueue.queueEvent({
+    clientEventId,
+    parentClientEventId: parentEventId,
+    sessionId,
+    type,
+    occurredAt,
+    duration: (strictParams as any).duration,
+    tags: (strictParams as any).tags,
+    metadata: (strictParams as any).metadata,
+    payload,
+    timestamp: Date.now(),
+    retries: 0,
+  });
+
+  // Immediate return with client event id
   return clientEventId || undefined;
 }
 
