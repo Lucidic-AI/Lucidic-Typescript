@@ -97,7 +97,7 @@ export class EventQueue {
       }
       const resp = await this.eventResource.createEvent({
         client_event_id: event.clientEventId,
-        parent_client_event_id: event.parentClientEventId,
+        client_parent_event_id: event.parentClientEventId,
         session_id: event.sessionId,
         type: event.type,
         occurred_at: event.occurredAt,
