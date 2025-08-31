@@ -132,15 +132,12 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
     debug('Crash event creation failed', e);
   }
 
-  // Best-effort: end session as unsuccessful
+  // Best-effort: end session (without marking as unsuccessful - could be intentional)
   try {
     if (state.sessionId) {
       const mod = await import('./session.js');
-      await mod.endSession({
-        isSuccessful: false,
-        isSuccessfulReason: `Uncaught ${exceptionType}: ${exceptionMessage}`
-      });
-      info('Session auto-ended as unsuccessful due to uncaught exception');
+      await mod.endSession({});
+      info('Session auto-ended due to uncaught exception');
     }
   } catch (e) {
     debug('Auto-ending session after uncaught exception failed', e);
