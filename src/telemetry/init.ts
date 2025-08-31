@@ -19,7 +19,6 @@ let didRegisterGlobalProvider = false;
 type BuildTelemetryParams = {
   providers: ProviderType[];
   useSpanProcessor: boolean;
-  baseUrl?: string;
   apiKey: string;
   agentId: string;
   instrumentModules?: Record<string, any>;
@@ -42,7 +41,7 @@ export async function buildTelemetry(params: BuildTelemetryParams) {
 
   const provider = new NodeTracerProvider();
 
-  const exporter = new LucidicSpanExporter({ baseUrl: params.baseUrl, apiKey: params.apiKey, agentId: params.agentId });
+  const exporter = new LucidicSpanExporter({ apiKey: params.apiKey, agentId: params.agentId });
   const processor = params.useSpanProcessor
     ? new SimpleSpanProcessor(exporter)
     : new BatchSpanProcessor(exporter);

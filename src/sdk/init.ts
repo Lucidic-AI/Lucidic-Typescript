@@ -161,7 +161,7 @@ export async function init(params: InitParams = {}): Promise<string> {
   if (!apiKey) throw new Error('LUCIDIC_API_KEY not provided');
   if (!agentId) throw new Error('LUCIDIC_AGENT_ID not provided');
 
-  const http = new HttpClient({ baseUrl: params.baseUrl, apiKey });
+  const http = new HttpClient({ apiKey });
   const sessionRes = new SessionResource(http);
   info('Initializing session with backend...');
   const { session_id } = await sessionRes.initSession({ ...params, agentId });
@@ -182,7 +182,6 @@ export async function init(params: InitParams = {}): Promise<string> {
   const provider = await buildTelemetry({
     providers,
     useSpanProcessor: params.useSpanProcessor ?? defaultUseSimple,
-    baseUrl: params.baseUrl,
     apiKey,
     agentId,
     instrumentModules: params.instrumentModules,

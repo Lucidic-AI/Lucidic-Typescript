@@ -35,7 +35,6 @@ export type InitParams = {
   instrumentModules?: Record<string, any>;
   // telemetry options
   useSpanProcessor?: boolean;
-  baseUrl?: string;
   debug?: boolean;
 };
 

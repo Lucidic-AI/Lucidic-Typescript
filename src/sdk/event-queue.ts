@@ -27,16 +27,21 @@ export class EventQueue {
   private shutdownPromise: Promise<void> | null = null;
   private stopped = false;
 
-  private readonly maxQueueSize = Number(process.env.LUCIDIC_MAX_QUEUE_SIZE) || 100_000;
-  private readonly flushIntervalMs = Number(process.env.LUCIDIC_FLUSH_INTERVAL) || 100;
-  private readonly flushAtCount = Number(process.env.LUCIDIC_FLUSH_AT) || 100;
-  private readonly blobThreshold = Number(process.env.LUCIDIC_BLOB_THRESHOLD) || 64 * 1024;
+  private readonly maxQueueSize: number;
+  private readonly flushIntervalMs: number;
+  private readonly flushAtCount: number;
+  private readonly blobThreshold: number;
 
   private sentEventIds = new Set<string>();
   private eventResource: EventResource;
 
   constructor(eventResource: EventResource) {
     this.eventResource = eventResource;
+    // Evaluate environment variables at construction time
+    this.maxQueueSize = Number(process.env.LUCIDIC_MAX_QUEUE_SIZE) || 100_000;
+    this.flushIntervalMs = Number(process.env.LUCIDIC_FLUSH_INTERVAL) || 100;
+    this.flushAtCount = Number(process.env.LUCIDIC_FLUSH_AT) || 100;
+    this.blobThreshold = Number(process.env.LUCIDIC_BLOB_THRESHOLD) || 64 * 1024;
   }
 
   queueEvent(params: QueuedEvent): string {

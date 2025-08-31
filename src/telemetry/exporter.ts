@@ -9,7 +9,7 @@ import { getDecoratorContext } from '../sdk/decorators.js';
 import { debug } from '../util/logger.js';
 
 export class LucidicSpanExporter implements SpanExporter {
-  constructor(private cfg: { baseUrl?: string; apiKey: string; agentId: string }) {}
+  constructor(private cfg: { apiKey: string; agentId: string }) {}
 
   async export(spans: ReadableSpan[], resultCallback: (result: any) => void): Promise<void> {
     try {
