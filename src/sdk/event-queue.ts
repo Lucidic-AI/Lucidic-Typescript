@@ -25,6 +25,7 @@ export class EventQueue {
   private processing = false;
   private flushTimer: NodeJS.Timeout | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private stopped = false;
 
   private readonly maxQueueSize = Number(process.env.LUCIDIC_MAX_QUEUE_SIZE) || 100_000;
   private readonly flushIntervalMs = Number(process.env.LUCIDIC_FLUSH_INTERVAL) || 100;
@@ -39,6 +40,10 @@ export class EventQueue {
   }
 
   queueEvent(params: QueuedEvent): string {
+    if (this.stopped) {
+      debug('Event queue is stopped, dropping event');
+      return '';
+    }
     if (this.queue.length >= this.maxQueueSize) {
       logError(`Event queue at max size ${this.maxQueueSize}, dropping event`);
       return '';
@@ -195,6 +200,28 @@ export class EventQueue {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shutdownPromise = this.flush().finally(() => { this.shutdownPromise = null; });
     return this.shutdownPromise;
+  }
+
+  async shutdown(): Promise<void> {
+    debug('Event queue shutdown requested');
+    
+    // First try to flush remaining events
+    try {
+      await this.forceFlush();
+    } catch (e) {
+      debug('Error during shutdown flush:', e);
+    }
+    
+    // Then mark as stopped to prevent new events
+    this.stopped = true;
+    
+    // Clear any pending timer
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    
+    debug('Event queue shutdown complete');
   }
 }
 

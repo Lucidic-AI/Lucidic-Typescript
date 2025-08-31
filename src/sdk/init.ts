@@ -79,23 +79,25 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
     logError('Uncaught exception captured; creating crash event and auto-ending session');
   } catch {}
 
+  // Build structured exception info for both crash event and session end
+  let exceptionType: string | undefined;
+  let exceptionMessage: string | undefined;
+  try {
+    if (err && typeof err === 'object') {
+      const anyErr = err as any;
+      exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
+      exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
+    }
+  } catch {}
+  if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
+  if (!exceptionMessage) {
+    try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
+  }
+
   // Best-effort: create crash event if session is initialized
   try {
     if (state.sessionId) {
       // Build structured arguments
-      let exceptionType: string | undefined;
-      let exceptionMessage: string | undefined;
-      try {
-        if (err && typeof err === 'object') {
-          const anyErr = err as any;
-          exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
-          exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
-        }
-      } catch {}
-      if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
-      if (!exceptionMessage) {
-        try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
-      }
       let threadName = 'main';
       try {
         const wt = await import('node:worker_threads');
@@ -134,8 +136,11 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
   try {
     if (state.sessionId) {
       const mod = await import('./session.js');
-      await mod.endSession({});
-      info('Session auto-ended due to uncaught exception');
+      await mod.endSession({
+        isSuccessful: false,
+        isSuccessfulReason: `Uncaught ${exceptionType}: ${exceptionMessage}`
+      });
+      info('Session auto-ended as unsuccessful due to uncaught exception');
     }
   } catch (e) {
     debug('Auto-ending session after uncaught exception failed', e);
@@ -198,6 +203,7 @@ export async function init(params: InitParams = {}): Promise<string> {
         info('Flushing events and auto-ending session on shutdown...');
         try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (auto-end)', e); }
         await import('./session.js').then(m => m.endSession({}));
+        // Note: endSession now handles queue shutdown for global sessions
         // Ensure any batched spans are exported before process exits
         if (state.provider) {
           try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error', e); }
@@ -228,6 +234,7 @@ export async function init(params: InitParams = {}): Promise<string> {
     state.isShuttingDown = true;
     try {
       try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
+      try { await state.eventQueue?.shutdown(); } catch (e) { debug('queue shutdown error (signal)', e); }
       if (state.provider) {
         try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
         try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error (signal)', e); }
@@ -275,5 +282,12 @@ export function aiTelemetry() {
     recordInputs: true,
     recordOutputs: true,
   } as any;
+}
+
+// Clear SDK state after session ends
+export function clearState(): void {
+  state.sessionId = null;
+  // Note: We keep http, agentId, prompt, and provider for potential reuse
+  // Only clear session-specific state
 }
 
