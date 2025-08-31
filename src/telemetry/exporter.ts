@@ -26,13 +26,17 @@ export class LucidicSpanExporter implements SpanExporter {
         debug('Span routing decision', { name: span.name, used: stampedSessionId ? 'stamped' : 'global', sessionId });
         if (!sessionId) continue;
 
+        // Get parent event ID from span attributes (captured at span creation) or fallback to decorator context
+        const capturedParentId = attrs['lucidic.parent_event_id'] as string | undefined;
+        const parentEventId = capturedParentId || decoratorContext?.currentEventId;
+
         if (isAiSdkToolSpan) {
           const toolName = attrs['ai.toolCall.name'] as string | undefined;
           const rawArgs = attrs['ai.toolCall.args'] as string | undefined;
           const toolResult = attrs['ai.toolCall.result'] as string | undefined;
           let parsedArgs: any;
           try { parsedArgs = rawArgs ? JSON.parse(rawArgs) : undefined; } catch { parsedArgs = rawArgs; }
-          createEvent({ type: 'function_call', function_name: toolName || 'unknown_tool', arguments: parsedArgs, return_value: toolResult, parentEventId: decoratorContext?.currentEventId });
+          createEvent({ type: 'function_call', function_name: toolName || 'unknown_tool', arguments: parsedArgs, return_value: toolResult, parentEventId });
         } else {
           const prompts = extractPrompts(attrs);
           const completions = extractCompletions(span, attrs) ?? (span.status.code === SpanStatusCode.ERROR ? `Error: ${span.status.message ?? 'Unknown error'}` : 'Response received');
@@ -43,7 +47,7 @@ export class LucidicSpanExporter implements SpanExporter {
           const provider = this.detectProvider(model, attrs);
           const cost = calculateCostUSD(model, attrs) ?? undefined;
           const messages = this.parseMessagesFromPrompts(prompts ?? '');
-          createEvent({ type: 'llm_generation', provider, model, messages, output: completions || '', input_tokens: inputTokens, output_tokens: outputTokens, cost, parentEventId: decoratorContext?.currentEventId, span_name: span.name, span_duration: span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined });
+          createEvent({ type: 'llm_generation', provider, model, messages, output: completions || '', input_tokens: inputTokens, output_tokens: outputTokens, cost, parentEventId, span_name: span.name, span_duration: span.endTime && span.startTime ? (span.endTime[0] - span.startTime[0]) + (span.endTime[1] - span.startTime[1]) / 1e9 : undefined });
           if (images.length > 0) { debug(`LLM span has ${images.length} images - handle separately if needed`); }
         }
       }

@@ -7,6 +7,7 @@ import {
 import { getSessionId, getEventQueue } from './init';
 import { getDecoratorContext } from './decorators';
 import { EventBuilder } from './event-builder';
+import { debug } from '../util/logger';
 import * as crypto from 'crypto';
 
 // Type guard helpers removed; flexible parameter system handles mapping
@@ -34,7 +35,12 @@ export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg
   const strictParams = EventBuilder.build(flexibleParams);
 
   const decoratorContext = getDecoratorContext();
-  const parentEventId = strictParams.parentEventId || decoratorContext?.currentEventId;
+  // Only use decorator context as fallback if parentEventId was not explicitly provided
+  // This prevents self-parenting when decorator calls createEvent from within new context
+  const hasExplicitParent = 'parentEventId' in flexibleParams;
+  const parentEventId = hasExplicitParent
+    ? strictParams.parentEventId 
+    : decoratorContext?.currentEventId;
   const occurredAt = strictParams.occurredAt || new Date().toISOString();
   
   // Extract event type and payload based on discriminated union

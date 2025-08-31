@@ -88,7 +88,8 @@ export class EventBuilder {
   private static extractBaseParams(params: any): BaseEventParams {
     const base: BaseEventParams = {};
     if (params.eventId) base.eventId = params.eventId;
-    if (params.parentEventId) base.parentEventId = params.parentEventId;
+    // Preserve parentEventId even if undefined, to distinguish explicit undefined from missing
+    if ('parentEventId' in params) base.parentEventId = params.parentEventId;
     if (params.occurredAt) base.occurredAt = params.occurredAt;
     if (params.duration !== undefined) base.duration = params.duration;
     if (params.tags) base.tags = params.tags;

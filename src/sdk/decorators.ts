@@ -33,6 +33,7 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
       const parentEventId = parentContext?.currentEventId;
 
       const clientEventId = crypto.randomUUID();
+      
       const params: FlexibleEventParams = {
         eventId: clientEventId,
         type: 'function_call',
@@ -60,8 +61,20 @@ export function event(options: { tags?: string[]; metadata?: Record<string, any>
           return result;
         } catch (error) {
           const duration = (Date.now() - startTime) / 1000;
-          createEvent({ ...params, return_value: null, duration, metadata: { ...(options.metadata || {}), error: true, error_message: String(error) } });
-          createEvent({ parentEventId: clientEventId, type: 'error_traceback', error: error instanceof Error ? error.message : String(error), traceback: error instanceof Error ? error.stack : undefined });
+          // Store error as structured return value with error type (matching Python SDK)
+          const errorReturnValue = {
+            error: String(error),
+            error_type: error instanceof Error ? error.constructor.name : 'Error'
+          };
+          createEvent({ 
+            ...params, 
+            return_value: errorReturnValue, 
+            duration, 
+            error: String(error),
+            metadata: { ...(options.metadata || {}), error: true, error_message: String(error) } 
+          });
+          // Note: Python SDK doesn't create separate error_traceback events anymore
+          // Keeping for backward compatibility but could be removed
           throw error;
         }
       });
