@@ -158,6 +158,7 @@ export type EventParams =
 // Flexible parameters for user-facing createEvent API
 export interface FlexibleEventParams extends Partial<BaseEventParams> {
   type?: EventType;
+  sessionId?: string;  // Allow overriding session ID for concurrent sessions
   // LLM
   provider?: string;
   model?: string;

@@ -16,12 +16,7 @@ export function createEvent(description: string): string | undefined;
 export function createEvent(type: EventType, details: string): string | undefined;
 export function createEvent(params: FlexibleEventParams): string | undefined;
 export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg2?: string): string | undefined {
-  const sessionId = getSessionId();
-  if (!sessionId) return;
-  const eventQueue = getEventQueue();
-  if (!eventQueue) return;
-
-  // Build flexible params from overload args
+  // Build flexible params from overload args first to check for sessionId
   let flexibleParams: FlexibleEventParams;
   if (typeof arg1 === 'string' && !arg2) {
     flexibleParams = { details: arg1 };
@@ -30,6 +25,12 @@ export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg
   } else {
     flexibleParams = (arg1 as FlexibleEventParams) || {};
   }
+
+  // Use provided sessionId or fall back to global
+  const sessionId = flexibleParams.sessionId || getSessionId();
+  if (!sessionId) return;
+  const eventQueue = getEventQueue();
+  if (!eventQueue) return;
 
   // Convert to strict typed params
   const strictParams = EventBuilder.build(flexibleParams);
