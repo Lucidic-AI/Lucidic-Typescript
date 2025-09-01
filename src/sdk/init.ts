@@ -15,6 +15,7 @@ type State = {
   http: HttpClient | null;
   sessionId: string | null;
   agentId: string | null;
+  apiKey: string | null;  // Track current API key for reuse validation
   masking?: (text: string) => string;
   prompt?: PromptResource;
   isShuttingDown?: boolean;
@@ -26,6 +27,7 @@ const state: State = {
   http: null,
   sessionId: null,
   agentId: null,
+  apiKey: null,
   eventQueue: null,
 };
 
@@ -152,6 +154,43 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
   process.exit(exitCode);
 }
 
+/**
+ * Get or create an HTTP client, reusing if credentials match
+ */
+export function getOrCreateHttp(apiKey: string, agentId: string): HttpClient {
+  // If we have an HTTP client with the same API key, reuse it
+  if (state.http && state.apiKey === apiKey) {
+    // Update agentId if needed
+    if (state.agentId !== agentId) {
+      state.agentId = agentId;
+    }
+    return state.http;
+  }
+  
+  // Create new HTTP client
+  const http = new HttpClient({ apiKey });
+  state.http = http;
+  state.apiKey = apiKey;
+  state.agentId = agentId;
+  
+  info(`HTTP client ${state.http ? 'reused' : 'created'} for agent ${agentId}`);
+  return http;
+}
+
+/**
+ * Check if HTTP client exists (without throwing)
+ */
+export function hasHttp(): boolean {
+  return state.http !== null;
+}
+
+/**
+ * Get agentId without throwing
+ */
+export function getAgentIdSafe(): string | null {
+  return state.agentId;
+}
+
 export async function init(params: InitParams = {}): Promise<string> {
   
   dotenv.config();
@@ -161,14 +200,14 @@ export async function init(params: InitParams = {}): Promise<string> {
   if (!apiKey) throw new Error('LUCIDIC_API_KEY not provided');
   if (!agentId) throw new Error('LUCIDIC_AGENT_ID not provided');
 
-  const http = new HttpClient({ apiKey });
+  // Use getOrCreateHttp to reuse existing client if credentials match
+  const http = getOrCreateHttp(apiKey, agentId);
   const sessionRes = new SessionResource(http);
   info('Initializing session with backend...');
   const { session_id } = await sessionRes.initSession({ ...params, agentId });
 
-  state.http = http;
+  // Update state (http, apiKey, and agentId already set by getOrCreateHttp)
   state.sessionId = session_id;
-  state.agentId = agentId;
   state.masking = params.maskingFunction;
   state.prompt = new PromptResource(http, agentId);
 

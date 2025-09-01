@@ -47,6 +47,16 @@ export type UpdateSessionParams = {
   tags?: string[];
 };
 
+export type CreateExperimentParams = {
+  experimentName: string;
+  passFailRubrics: string[];
+  scoreRubrics?: string[];
+  description?: string;
+  tags?: string[];
+  apiKey?: string;
+  agentId?: string;
+};
+
 export type GetPromptParams = {
   promptName: string;
   variables?: Record<string, any>;
