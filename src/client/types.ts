@@ -23,7 +23,6 @@ export type InitParams = {
   task?: string;
   providers?: ProviderType[];
   productionMonitoring?: boolean;
-  massSimId?: string;
   experimentId?: string;
   rubrics?: string[];
   tags?: string[];
