@@ -20,8 +20,7 @@ dotenv.config();
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Test functions with decorators (must be at module level)
-@event({ metadata: { name: 'data_processor' } })
-async function processData(data: number[]): Promise<{ sum: number; count: number; average: number }> {
+const processData = event({ metadata: { name: 'data_processor' } })(async function processData(data: number[]): Promise<{ sum: number; count: number; average: number }> {
   const result = {
     sum: data.reduce((a, b) => a + b, 0),
     count: data.length,
@@ -29,18 +28,16 @@ async function processData(data: number[]): Promise<{ sum: number; count: number
   };
   await delay(10);  // Simulate processing time
   return result;
-}
+});
 
-@event({ metadata: { name: 'data_validator' } })
-async function validateData(data: number[]): Promise<boolean> {
+const validateData = event({ metadata: { name: 'data_validator' } })(async function validateData(data: number[]): Promise<boolean> {
   if (!data || data.length === 0) return false;
   if (data.some(x => x < 0)) return false;
   await delay(10);  // Simulate validation time
   return true;
-}
+});
 
-@event({ metadata: { name: 'ai_analyzer' } })
-async function analyzeWithAI(processedData: { sum: number; count: number; average: number }): Promise<string> {
+const analyzeWithAI = event({ metadata: { name: 'ai_analyzer' } })(async function analyzeWithAI(processedData: { sum: number; count: number; average: number }): Promise<string> {
   try {
     // Use real OpenAI API (will be instrumented by SDK telemetry)
     if (!process.env.OPENAI_API_KEY) {
@@ -80,23 +77,20 @@ async function analyzeWithAI(processedData: { sum: number; count: number; averag
     const summary = `Summary: Processing successful with sum=${processedData.sum}`;
     return `${analysis} | ${summary}`;
   }
-}
+});
 
-@event({ metadata: { name: 'formatter' } })
-async function formatResults(analysis: string, metadata: any): Promise<string> {
+const formatResults = event({ metadata: { name: 'formatter' } })(async function formatResults(analysis: string, metadata: any): Promise<string> {
   const formatted = `[${metadata.timestamp}] ${analysis}`;
   await delay(10);
   return formatted;
-}
+});
 
-@event({ metadata: { name: 'nested_helper' } })
-async function nestedHelperFunction(value: number): Promise<number> {
+const nestedHelperFunction = event({ metadata: { name: 'nested_helper' } })(async function nestedHelperFunction(value: number): Promise<number> {
   await delay(10);
   return value * 2;
-}
+});
 
-@event({ metadata: { name: 'aggregator' } })
-async function aggregateResults(data: number[], analysis: string): Promise<any> {
+const aggregateResults = event({ metadata: { name: 'aggregator' } })(async function aggregateResults(data: number[], analysis: string): Promise<any> {
   // Call another nested function
   const sum = data.reduce((a, b) => a + b, 0);
   const multipliedSum = await nestedHelperFunction(sum);
@@ -106,10 +100,9 @@ async function aggregateResults(data: number[], analysis: string): Promise<any> 
     multiplied_sum: multipliedSum,
     analysis: analysis
   };
-}
+});
 
-@event({ metadata: { name: 'main_workflow' } })
-async function mainWorkflow(inputData: number[]): Promise<any> {
+const mainWorkflow = event({ metadata: { name: 'main_workflow' } })(async function mainWorkflow(inputData: number[]): Promise<any> {
   // Step 1: Validate the data
   const isValid = await validateData(inputData);
   if (!isValid) {
@@ -167,23 +160,20 @@ async function mainWorkflow(inputData: number[]): Promise<any> {
     aggregated: aggregated,
     processed: processed
   };
-}
+});
 
 // Async test functions
-@event({ metadata: { name: 'async_processor' } })
-async function asyncProcess(data: string): Promise<string> {
+const asyncProcess = event({ metadata: { name: 'async_processor' } })(async function asyncProcess(data: string): Promise<string> {
   await delay(10);
   return data.toUpperCase();
-}
+});
 
-@event({ metadata: { name: 'async_validator' } })
-async function asyncValidate(data: string): Promise<boolean> {
+const asyncValidate = event({ metadata: { name: 'async_validator' } })(async function asyncValidate(data: string): Promise<boolean> {
   await delay(10);
   return data.length > 0;
-}
+});
 
-@event({ metadata: { name: 'async_main' } })
-async function asyncMainWorkflow(inputText: string): Promise<any> {
+const asyncMainWorkflow = event({ metadata: { name: 'async_main' } })(async function asyncMainWorkflow(inputText: string): Promise<any> {
   // Validate
   const isValid = await asyncValidate(inputText);
   if (!isValid) {
@@ -202,25 +192,22 @@ async function asyncMainWorkflow(inputText: string): Promise<any> {
     original: inputText,
     processed: processed
   };
-}
+});
 
 // Mixed sync/async test functions
-@event({ metadata: { name: 'sync_helper' } })
-function syncHelper(value: number): number {
+const syncHelper = event({ metadata: { name: 'sync_helper' } })(function syncHelper(value: number): number {
   // Note: This is a sync function, no await
   return value + 10;
-}
+});
 
-@event({ metadata: { name: 'async_caller' } })
-async function asyncCaller(value: number): Promise<number> {
+const asyncCaller = event({ metadata: { name: 'async_caller' } })(async function asyncCaller(value: number): Promise<number> {
   await delay(10);
   // Call sync function from async context
   const result = syncHelper(value);
   return result * 2;
-}
+});
 
-@event({ metadata: { name: 'mixed_main' } })
-async function mixedWorkflow(startValue: number): Promise<number> {
+const mixedWorkflow = event({ metadata: { name: 'mixed_main' } })(async function mixedWorkflow(startValue: number): Promise<number> {
   const result = await asyncCaller(startValue);
   
   // Error case
@@ -229,7 +216,7 @@ async function mixedWorkflow(startValue: number): Promise<number> {
   }
   
   return result;
-}
+});
 
 class TestNestedDecorators {
   private createdEvents: any[] = [];
