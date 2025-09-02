@@ -48,7 +48,7 @@ export type UpdateSessionParams = {
 
 export type CreateExperimentParams = {
   experimentName: string;
-  passFailRubrics: string[];
+  passFailRubrics?: string[];
   scoreRubrics?: string[];
   description?: string;
   tags?: string[];

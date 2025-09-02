@@ -9,14 +9,14 @@ import dotenv from 'dotenv';
  * 
  * @param params - Experiment creation parameters
  * @param params.experimentName - Name of the experiment (required)
- * @param params.passFailRubrics - List of pass/fail rubric names (required, at least one)
+ * @param params.passFailRubrics - List of pass/fail rubric names (optional)
  * @param params.scoreRubrics - List of score rubric names (optional)
  * @param params.description - Description of the experiment (optional)
  * @param params.tags - Tags for categorization (optional)
  * @param params.apiKey - API key, uses LUCIDIC_API_KEY env if not provided
  * @param params.agentId - Agent ID, uses LUCIDIC_AGENT_ID env if not provided
  * @returns The experiment ID
- * @throws Error if name is empty or no rubrics provided
+ * @throws Error if name is empty
  */
 export async function createExperiment(params: CreateExperimentParams): Promise<string> {
   dotenv.config();
@@ -24,9 +24,6 @@ export async function createExperiment(params: CreateExperimentParams): Promise<
   // Validation
   if (!params.experimentName) {
     throw new Error('Experiment name is required');
-  }
-  if (!params.passFailRubrics || params.passFailRubrics.length === 0) {
-    throw new Error('At least one pass/fail rubric is required');
   }
 
   // Get credentials - use provided or fall back to env/existing state
