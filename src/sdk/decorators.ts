@@ -2,150 +2,161 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { debug } from '../util/logger';
 import { getMask, getSessionId } from './init';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
+import { FlexibleEventParams } from '../client/types';
+import * as crypto from 'crypto';
 
 type AnyFn = (...args: any[]) => any;
 
-type DecoratorStore = { currentStepId?: string; currentEventId?: string };
-const als = new AsyncLocalStorage<DecoratorStore>();
-
-export function getDecoratorStep(): string | undefined {
-  return als.getStore()?.currentStepId;
-}
+export type DecoratorContext = { currentEventId?: string; eventStack: string[] };
+const als = new AsyncLocalStorage<DecoratorContext>();
 
 export function getDecoratorEvent(): string | undefined {
   return als.getStore()?.currentEventId;
 }
 
-export function step(options: {
-  state?: string;
-  action?: string;
-  goal?: string;
-  screenshotPath?: string;
-  evalScore?: number;
-  evalDescription?: string;
-} = {}) {
-  return function <F extends AnyFn>(fn: F): F {
-    const wrapper = async function(this: any, ...args: any[]) {
-      // If not initialized or no session, run through
-      if (!getSessionId()) {
-        debug('No active session, running function without step decorator');
-        return await fn.apply(this, args);
-      }
+type EventOptions = { tags?: string[]; metadata?: Record<string, any>; misc?: Record<string, any> };
 
-      const mod = await import('./step');
-      const stepId = await mod.createStep(options);
-      const prev = als.getStore() ?? {};
-      return await als.run({ ...prev, currentStepId: stepId }, async () => {
-        try {
-          const result = await fn.apply(this, args);
-          await mod.endStep({ stepId });
-          return result;
-        } catch (e) {
-          await mod.endStep({ stepId, evalScore: 0.0, evalDescription: `Step failed with error: ${String(e)}` });
-          throw e;
-        }
-      });
-    } as AnyFn;
-    return wrapper as F;
-  };
-}
-
-export function event(options: {
-  description?: string;
-  result?: string;
-  model?: string;
-  costAdded?: number;
-} = {}) {
-  return function <F extends AnyFn>(fn: F): F {
-    const wrapper = async function(this: any, ...args: any[]) {
-      // If not initialized or no session, run through
+/**
+ * Universal decorator factory compatible with TS 5 (standard) method decorators
+ * and higher-order function wrapping for standalone functions.
+ *
+ * Usage:
+ *  - Class methods (TS5):
+ *      class X { @event({}) method() {} }
+ *  - Standalone functions:
+ *      const fn = event({})(function fn(...) { ... })
+ */
+export function event(options: EventOptions = {}) {
+  function wrapFunction<F extends AnyFn>(fn: F, explicitName?: string): F {
+    const wrapper = function(this: any, ...args: any[]) {
       if (!getSessionId()) {
         debug('No active session, running function without event decorator');
-        return await fn.apply(this, args);
+        return fn.apply(this, args) as ReturnType<F>;
       }
 
-      const mod = await import('./event');
       const mask = getMask();
-
-      // Build description from inputs if not provided
-      let description = options.description;
-      if (!description) {
-        const parts: string[] = [];
-        for (let i = 0; i < args.length; i++) {
-          const val = args[i];
-          let printed: string;
-          try { printed = JSON.stringify(val); } catch { printed = String(val); }
-          parts.push(`arg${i}=${printed}`);
-        }
-        description = `${fn.name || 'anonymous'}(${parts.join(', ')})`;
-        if (mask) description = mask(description);
-        if (description.length > 4096) description = description.slice(0, 4096) + '…';
-      }
-
-      // Link to active step if present
-      const stepId = getDecoratorStep();
-      const functionName = fn.name || 'anonymous';
+      const functionName = explicitName || fn.name || 'anonymous';
       let serializedArgs = toJsonSafe(args);
-      if (mask) {
-        serializedArgs = mapJsonStrings(serializedArgs, mask);
-      }
-      const eventId = await mod.createEvent({
-        description,
-        stepId,
-        model: options.model,
-        costAdded: options.costAdded,
-        functionName,
+      if (mask) serializedArgs = mapJsonStrings(serializedArgs, mask);
+
+      const parentContext = als.getStore();
+      const parentEventId = parentContext?.currentEventId;
+      const clientEventId = crypto.randomUUID();
+
+      const params: FlexibleEventParams = {
+        eventId: clientEventId,
+        type: 'function_call',
+        function_name: functionName,
         arguments: serializedArgs,
-      });
-      const prev = als.getStore() ?? {};
-      return await als.run({ ...prev, currentEventId: eventId }, async () => {
+        parentEventId,
+        tags: options.tags,
+        metadata: options.metadata,
+        ...(options.misc || {}),
+      };
+
+      const newContext: DecoratorContext = {
+        currentEventId: clientEventId,
+        eventStack: [...(parentContext?.eventStack || []), clientEventId],
+      };
+
+      return als.run(newContext, () => {
+        const startTime = Date.now();
         try {
-          const result = await fn.apply(this, args);
-          let finalResult = options.result;
-          if (!finalResult) {
-            try { finalResult = JSON.stringify(result); } catch { finalResult = String(result); }
-            if (mask) finalResult = mask(finalResult);
-            if (finalResult.length > 4096) finalResult = finalResult.slice(0, 4096) + '…';
+          const result = fn.apply(this, args);
+          if (result && typeof (result as any).then === 'function') {
+            // Async path: attach handlers
+            return (result as Promise<any>)
+              .then(res => {
+                let serializedReturn = toJsonSafe(res);
+                if (mask) serializedReturn = mapJsonStrings(serializedReturn, mask);
+                const duration = (Date.now() - startTime) / 1000;
+                void import('./event.js').then(({ createEvent }) => {
+                  createEvent({ ...params, return_value: serializedReturn, duration });
+                });
+                return res;
+              })
+              .catch(error => {
+                const duration = (Date.now() - startTime) / 1000;
+                const errorReturnValue = {
+                  error: String(error),
+                  error_type: error instanceof Error ? error.constructor.name : 'Error'
+                };
+                void import('./event.js').then(({ createEvent }) => {
+                  createEvent({
+                    ...params,
+                    return_value: errorReturnValue,
+                    duration,
+                    error: String(error),
+                    metadata: { ...(options.metadata || {}), error: true, error_message: String(error) }
+                  });
+                });
+                throw error;
+              });
+          } else {
+            // Sync path: create event immediately (async import, fire-and-forget)
+            let serializedReturn = toJsonSafe(result);
+            if (mask) serializedReturn = mapJsonStrings(serializedReturn, mask);
+            const duration = (Date.now() - startTime) / 1000;
+            void import('./event.js').then(({ createEvent }) => {
+              createEvent({ ...params, return_value: serializedReturn, duration });
+            });
+            return result;
           }
-          await mod.endEvent({
-            eventId,
-            result: finalResult,
-            model: options.model,
-            costAdded: options.costAdded,
-            functionName,
-            arguments: serializedArgs,
+        } catch (error: any) {
+          const duration = (Date.now() - startTime) / 1000;
+          const errorReturnValue = {
+            error: String(error),
+            error_type: error instanceof Error ? error.constructor.name : 'Error'
+          };
+          void import('./event.js').then(({ createEvent }) => {
+            createEvent({
+              ...params,
+              return_value: errorReturnValue,
+              duration,
+              error: String(error),
+              metadata: { ...(options.metadata || {}), error: true, error_message: String(error) }
+            });
           });
-          return result;
-        } catch (e) {
-          const errStr = `Error: ${String(e)}`;
-          await mod.endEvent({
-            eventId,
-            result: mask ? mask(errStr) : errStr,
-            model: options.model,
-            costAdded: options.costAdded,
-            functionName,
-            arguments: serializedArgs,
-          });
-          throw e;
+          throw error;
         }
-      });
+      }) as ReturnType<F>;
     } as AnyFn;
     return wrapper as F;
+  }
+
+  // Returned function can act as:
+  // 1) TS5 method decorator: (value, context) => newValue
+  // 2) Higher-order function: (fn) => wrappedFn
+  return function(...args: any[]): any {
+    // TS5 method decorator path
+    if (args.length === 2 && typeof args[0] === 'function' && args[1] && typeof args[1] === 'object' && 'kind' in args[1]) {
+      const value = args[0] as AnyFn;
+      const context = args[1] as { kind: string; name?: string | symbol };
+      if (context.kind === 'method' || context.kind === 'getter' || context.kind === 'setter') {
+        const name = typeof context.name === 'symbol' ? (context.name.description || 'anonymous') : String(context.name ?? value.name);
+        return wrapFunction(value, name);
+      }
+      // For unsupported kinds, return original value unchanged
+      return value;
+    }
+
+    // Higher-order function path for standalone functions
+    if (args.length === 1 && typeof args[0] === 'function') {
+      return wrapFunction(args[0] as AnyFn);
+    }
+
+    // Fallback - return input
+    return args[0];
   };
 }
 
-// Optional helpers to update current step/event using ALS context
-export async function updateCurrentStep(params: { stepId?: string } & Record<string, any>): Promise<void> {
-  const mod = await import('./step');
-  const id = (params as any).stepId ?? getDecoratorStep();
-  if (!id) throw new Error('No active step to update');
-  await mod.updateStep({ ...(params as any), stepId: id });
-}
+// Optional helpers use ALS context
 
-export async function updateCurrentEvent(params: { eventId?: string } & Record<string, any>): Promise<void> {
-  const mod = await import('./event');
-  const id = (params as any).eventId ?? getDecoratorEvent();
-  if (!id) throw new Error('No active event to update');
-  await mod.updateEvent({ ...(params as any), eventId: id });
+export function getDecoratorContext() { return als.getStore(); }
+
+export async function withParentEvent<T>(parentEventId: string, fn: () => Promise<T>): Promise<T> {
+  const parent = als.getStore();
+  const ctx: DecoratorContext = { currentEventId: parentEventId, eventStack: [...(parent?.eventStack || []), parentEventId] };
+  return als.run(ctx, fn);
 }
 

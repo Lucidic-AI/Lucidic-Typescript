@@ -1,6 +1,6 @@
 {
   "name": "lucidicai",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Lucidic AI TypeScript SDK for AI Agent Observability",
   "author": {
     "name": "Anvit Sinha",
@@ -58,12 +58,12 @@
     "@traceloop/instrumentation-openai": "^0.12.0",
     "ai": "^5.0.11",
     "jimp": "^0.22.12",
-    "lucidicai": "^2.0.3"
+    "lucidicai": "^2.0.3",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@google-cloud/vertexai": "^1.0.0",
     "@anthropic-ai/sdk": "^0.39.0",
-    "dotenv": "^16.4.5",
     "openai": "^4.48.3",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3"

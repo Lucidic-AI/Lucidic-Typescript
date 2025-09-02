@@ -208,13 +208,9 @@ await endSession({ isSuccessful: true, isSuccessfulReason: 'Completed' });
 
 ### Steps
 ```ts
-import { createStep, updateStep, endStep } from 'lucidicai';
-
-const stepId = await createStep({ state: 'processing', screenshotPath: '/path/to/image.png' });
-await updateStep({ stepId, evalScore: 0.9 });
-await endStep({ stepId });
+// Step API has been removed in favor of typed events.
+// Use the event decorator or createEvent/createFunctionEvent helpers instead.
 ```
-- `screenshotPath` auto-uploads via presigned URL.
 
 ### Events
 ```ts

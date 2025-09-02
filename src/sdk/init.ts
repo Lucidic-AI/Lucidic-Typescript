@@ -1,27 +1,34 @@
 import { InitParams, ProviderType } from '../client/types';
 import { HttpClient } from '../client/httpClient';
 import { SessionResource } from '../client/resources/session';
+import { EventResource } from '../client/resources/event';
+import { EventQueue } from './event-queue';
 import { PromptResource } from '../client/resources/prompt';
 import { buildTelemetry } from '../telemetry/init';
 import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug, error as logError } from '../util/logger';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
+import dotenv from 'dotenv';
 
 type State = {
   http: HttpClient | null;
   sessionId: string | null;
   agentId: string | null;
+  apiKey: string | null;  // Track current API key for reuse validation
   masking?: (text: string) => string;
   prompt?: PromptResource;
   isShuttingDown?: boolean;
   provider?: NodeTracerProvider | null;
+  eventQueue?: EventQueue | null;
 };
 
 const state: State = {
   http: null,
   sessionId: null,
   agentId: null,
+  apiKey: null,
+  eventQueue: null,
 };
 
 const MAX_ERROR_DESCRIPTION_LENGTH = 16384;
@@ -74,23 +81,25 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
     logError('Uncaught exception captured; creating crash event and auto-ending session');
   } catch {}
 
+  // Build structured exception info for both crash event and session end
+  let exceptionType: string | undefined;
+  let exceptionMessage: string | undefined;
+  try {
+    if (err && typeof err === 'object') {
+      const anyErr = err as any;
+      exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
+      exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
+    }
+  } catch {}
+  if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
+  if (!exceptionMessage) {
+    try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
+  }
+
   // Best-effort: create crash event if session is initialized
   try {
     if (state.sessionId) {
       // Build structured arguments
-      let exceptionType: string | undefined;
-      let exceptionMessage: string | undefined;
-      try {
-        if (err && typeof err === 'object') {
-          const anyErr = err as any;
-          exceptionType = typeof anyErr.name === 'string' ? anyErr.name : anyErr?.constructor?.name;
-          exceptionMessage = typeof anyErr.message === 'string' ? anyErr.message : undefined;
-        }
-      } catch {}
-      if (!exceptionType) exceptionType = Object.prototype.toString.call(err).slice(8, -1);
-      if (!exceptionMessage) {
-        try { exceptionMessage = String(err); } catch { exceptionMessage = 'unknown'; }
-      }
       let threadName = 'main';
       try {
         const wt = await import('node:worker_threads');
@@ -108,19 +117,24 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
         if (state.masking) serializedArgs = mapJsonStrings(serializedArgs, state.masking);
       } catch {}
 
-      const mod = await import('./event.js');
-      await mod.createEvent({
-        description,
-        result: `process exited with code ${exitCode}`,
-        functionName: '__process_exit__',
-        arguments: serializedArgs,
-      });
+      // Flush any pending events first
+      if (state.eventQueue) {
+        try { await state.eventQueue.forceFlush(); } catch (e) { debug('Failed to flush events before crash event', e); }
+      }
+      
+      const helpers = await import('./event-helpers.js');
+      helpers.createErrorEvent(new Error(description), undefined);
+      
+      // Flush the crash event
+      if (state.eventQueue) {
+        try { await state.eventQueue.forceFlush(); } catch (e) { debug('Failed to flush crash event', e); }
+      }
     }
   } catch (e) {
     debug('Crash event creation failed', e);
   }
 
-  // Best-effort: end session as unsuccessful
+  // Best-effort: end session (without marking as unsuccessful - could be intentional)
   try {
     if (state.sessionId) {
       const mod = await import('./session.js');
@@ -140,22 +154,65 @@ async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<
   process.exit(exitCode);
 }
 
+/**
+ * Get or create an HTTP client, reusing if credentials match
+ */
+export function getOrCreateHttp(apiKey: string, agentId: string): HttpClient {
+  // If we have an HTTP client with the same API key, reuse it
+  if (state.http && state.apiKey === apiKey) {
+    // Update agentId if needed
+    if (state.agentId !== agentId) {
+      state.agentId = agentId;
+    }
+    return state.http;
+  }
+  
+  // Create new HTTP client
+  const http = new HttpClient({ apiKey });
+  state.http = http;
+  state.apiKey = apiKey;
+  state.agentId = agentId;
+  
+  info(`HTTP client ${state.http ? 'reused' : 'created'} for agent ${agentId}`);
+  return http;
+}
+
+/**
+ * Check if HTTP client exists (without throwing)
+ */
+export function hasHttp(): boolean {
+  return state.http !== null;
+}
+
+/**
+ * Get agentId without throwing
+ */
+export function getAgentIdSafe(): string | null {
+  return state.agentId;
+}
+
 export async function init(params: InitParams = {}): Promise<string> {
+  
+  dotenv.config();
+
   const apiKey = params.apiKey ?? process.env.LUCIDIC_API_KEY;
   const agentId = params.agentId ?? process.env.LUCIDIC_AGENT_ID;
   if (!apiKey) throw new Error('LUCIDIC_API_KEY not provided');
   if (!agentId) throw new Error('LUCIDIC_AGENT_ID not provided');
 
-  const http = new HttpClient({ baseUrl: params.baseUrl, apiKey });
+  // Use getOrCreateHttp to reuse existing client if credentials match
+  const http = getOrCreateHttp(apiKey, agentId);
   const sessionRes = new SessionResource(http);
   info('Initializing session with backend...');
   const { session_id } = await sessionRes.initSession({ ...params, agentId });
 
-  state.http = http;
+  // Update state (http, apiKey, and agentId already set by getOrCreateHttp)
   state.sessionId = session_id;
-  state.agentId = agentId;
   state.masking = params.maskingFunction;
   state.prompt = new PromptResource(http, agentId);
+
+  // Initialize event queue with POST-only event resource
+  state.eventQueue = new EventQueue(new EventResource(http));
 
   // Telemetry
   const providers = (params.providers ?? []) as ProviderType[];
@@ -164,7 +221,6 @@ export async function init(params: InitParams = {}): Promise<string> {
   const provider = await buildTelemetry({
     providers,
     useSpanProcessor: params.useSpanProcessor ?? defaultUseSimple,
-    baseUrl: params.baseUrl,
     apiKey,
     agentId,
     instrumentModules: params.instrumentModules,
@@ -179,8 +235,10 @@ export async function init(params: InitParams = {}): Promise<string> {
       if (state.isShuttingDown) return;
       state.isShuttingDown = true;
       try {
-        info('Auto-ending session on shutdown...');
+        info('Flushing events and auto-ending session on shutdown...');
+        try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (auto-end)', e); }
         await import('./session.js').then(m => m.endSession({}));
+        // Note: endSession now handles queue shutdown for global sessions
         // Ensure any batched spans are exported before process exits
         if (state.provider) {
           try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error', e); }
@@ -210,6 +268,8 @@ export async function init(params: InitParams = {}): Promise<string> {
     if (state.isShuttingDown) return;
     state.isShuttingDown = true;
     try {
+      try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
+      try { await state.eventQueue?.shutdown(); } catch (e) { debug('queue shutdown error (signal)', e); }
       if (state.provider) {
         try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
         try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error (signal)', e); }
@@ -241,6 +301,7 @@ export function getPromptResource(): PromptResource {
   if (!state.prompt) throw new Error('Lucidic SDK not initialized');
   return state.prompt;
 }
+export function getEventQueue(): EventQueue | null { return state.eventQueue ?? null; }
 
 // Return an OTel tracer from our local provider when available; fallback to global tracer
 export function getLucidicTracer(name: string = 'ai', version?: string) {
@@ -256,5 +317,12 @@ export function aiTelemetry() {
     recordInputs: true,
     recordOutputs: true,
   } as any;
+}
+
+// Clear SDK state after session ends
+export function clearState(): void {
+  state.sessionId = null;
+  // Note: We keep http, agentId, prompt, and provider for potential reuse
+  // Only clear session-specific state
 }
 

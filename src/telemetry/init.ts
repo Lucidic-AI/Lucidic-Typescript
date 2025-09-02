@@ -19,7 +19,6 @@ let didRegisterGlobalProvider = false;
 type BuildTelemetryParams = {
   providers: ProviderType[];
   useSpanProcessor: boolean;
-  baseUrl?: string;
   apiKey: string;
   agentId: string;
   instrumentModules?: Record<string, any>;
@@ -42,20 +41,24 @@ export async function buildTelemetry(params: BuildTelemetryParams) {
 
   const provider = new NodeTracerProvider();
 
-  const exporter = new LucidicSpanExporter({ baseUrl: params.baseUrl, apiKey: params.apiKey, agentId: params.agentId });
+  const exporter = new LucidicSpanExporter({ apiKey: params.apiKey, agentId: params.agentId });
   const processor = params.useSpanProcessor
     ? new SimpleSpanProcessor(exporter)
     : new BatchSpanProcessor(exporter);
   debug('Span processor created', { mode: params.useSpanProcessor ? 'simple' : 'batch' });
 
-  provider.addSpanProcessor(processor);
+  // Add context capture processor FIRST (runs synchronously at span creation)
+  // This captures BOTH session_id and parent_event_id from context
   try {
-    const { SessionStampProcessor } = await import('./sessionStamp.js');
-    provider.addSpanProcessor(new SessionStampProcessor());
-    debug('SessionStampProcessor added');
+    const { ContextCaptureProcessor } = await import('./contextCaptureProcessor.js');
+    provider.addSpanProcessor(new ContextCaptureProcessor());
+    debug('ContextCaptureProcessor added');
   } catch (e) {
-    debug('Unable to add SessionStampProcessor', e);
+    debug('Unable to add ContextCaptureProcessor', e);
   }
+
+  // Add the export processor (batch or simple)
+  provider.addSpanProcessor(processor);
 
   // Register provider as global to ensure any instrumentation that relies on the global API uses our provider -- guarded
   try {

@@ -1,15 +1,14 @@
 import { debug, info } from '../util/logger';
 
-const DEFAULT_BASE = process.env.LUCIDIC_DEBUG === 'True'
-  ? 'http://localhost:8000/api'
-  : 'https://analytics.lucidic.ai/api';
-
 export class HttpClient {
   private readonly baseUrl: string;
   private apiKey: string;
 
-  constructor(params: { baseUrl?: string; apiKey: string }) {
-    this.baseUrl = (params.baseUrl ?? DEFAULT_BASE).replace(/\/$/, '');
+  constructor(params: { apiKey: string }) {
+    // Determine base URL solely from environment variable at runtime
+    this.baseUrl = process.env.LUCIDIC_DEBUG === 'True'
+      ? 'http://localhost:8000/api'
+      : 'https://analytics.lucidic.ai/api';
     this.apiKey = params.apiKey;
     info(`HTTP client initialized at ${this.baseUrl}`);
   }
@@ -53,6 +52,18 @@ export class HttpClient {
     debug(`PUT ${url}`, body);
     const res = await fetch(url, {
       method: 'PUT',
+      headers: this.headers(),
+      body: JSON.stringify({ ...(body ?? {}), current_time: new Date().toISOString() }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json() as Promise<T>;
+  }
+
+  async patch<T>(endpoint: string, body?: Record<string, any>): Promise<T> {
+    const url = this.baseUrl + '/' + endpoint;
+    debug(`PATCH ${url}`, body);
+    const res = await fetch(url, {
+      method: 'PATCH',
       headers: this.headers(),
       body: JSON.stringify({ ...(body ?? {}), current_time: new Date().toISOString() }),
     });
