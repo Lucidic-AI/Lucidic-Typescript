@@ -8,7 +8,7 @@ export class HttpClient {
     // Determine base URL solely from environment variable at runtime
     this.baseUrl = process.env.LUCIDIC_DEBUG === 'True'
       ? 'http://localhost:8000/api'
-      : 'https://app.lucidic.ai/api';
+      : 'https://backend.lucidic.ai/api';
     this.apiKey = params.apiKey;
     info(`HTTP client initialized at ${this.baseUrl}`);
   }
