@@ -9,7 +9,7 @@ export class ExperimentResource {
     params: Omit<CreateExperimentParams, 'apiKey' | 'agentId'>
   ): Promise<{ experiment_id: string; experiment_name: string }> {
     const rubricNames = [
-      ...params.passFailRubrics,
+      ...(params.passFailRubrics || []),
       ...(params.scoreRubrics || [])
     ];
 
@@ -18,7 +18,7 @@ export class ExperimentResource {
       experiment_name: params.experimentName,
       description: params.description || '',
       tags: params.tags || [],
-      rubric_names: rubricNames,
+      rubric_names: rubricNames || [],
     });
   }
 }
