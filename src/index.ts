@@ -108,3 +108,4 @@ export {
 // Export types (these don't need wrapping)
 export * from './client/types';
 
+export * from './sdk/dataset';
