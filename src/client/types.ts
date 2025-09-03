@@ -26,6 +26,7 @@ export type InitParams = {
   experimentId?: string;
   rubrics?: string[];
   tags?: string[];
+  datasetItemId?: string;
   maskingFunction?: (text: string) => string;
   autoEnd?: boolean;
   // capture uncaught exceptions and create a crash event (default: true)
@@ -52,6 +53,12 @@ export type CreateExperimentParams = {
   scoreRubrics?: string[];
   description?: string;
   tags?: string[];
+  apiKey?: string;
+  agentId?: string;
+};
+
+export type GetDatasetParams = {
+  datasetId: string;
   apiKey?: string;
   agentId?: string;
 };
