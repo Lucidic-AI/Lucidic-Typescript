@@ -109,3 +109,4 @@ export {
 export * from './client/types';
 
 export * from './sdk/dataset';
+export * from './sdk/featureFlag';
