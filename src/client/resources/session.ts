@@ -13,6 +13,7 @@ export class SessionResource {
       rubrics,
       tags,
       productionMonitoring,
+      datasetItemId,
       agentId,
     } = params;
     return this.http.post('initsession', {
@@ -24,6 +25,7 @@ export class SessionResource {
       tags,
       session_id: sessionId,
       production_monitoring: productionMonitoring,
+      dataset_item_id: datasetItemId,
     });
   }
 
