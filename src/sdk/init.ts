@@ -9,6 +9,7 @@ import { trace } from '@opentelemetry/api';
 import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug, error as logError } from '../util/logger';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
+import { isInSilentMode } from './error-boundary';
 import dotenv from 'dotenv';
 
 type State = {
@@ -194,6 +195,13 @@ export function getAgentIdSafe(): string | null {
 export async function init(params: InitParams = {}): Promise<string> {
   
   dotenv.config();
+
+  // Log error handling mode once during initialization
+  if (isInSilentMode()) {
+    info('SDK initialized in silent mode (errors will be handled internally)');
+  } else {
+    info('SDK initialized in standard mode (errors will propagate)');
+  }
 
   const apiKey = params.apiKey ?? process.env.LUCIDIC_API_KEY;
   const agentId = params.agentId ?? process.env.LUCIDIC_AGENT_ID;
