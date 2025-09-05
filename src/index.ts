@@ -12,6 +12,8 @@ import {
   setActiveSession as _setActiveSession, 
   clearActiveSession as _clearActiveSession 
 } from './telemetry/sessionContext';
+import * as datasetModule from './sdk/dataset';
+import * as featureFlagModule from './sdk/featureFlag';
 
 // Import error boundary functions
 import { 
@@ -33,6 +35,8 @@ const wrappedDecorators = wrapSdkModule(decoratorsModule, 'decorators');
 const wrappedExperiment = wrapSdkModule(experimentModule, 'experiment');
 const wrappedPrompt = wrapSdkModule(promptModule, 'prompt');
 const wrappedContext = wrapSdkModule(contextModule, 'context');
+const wrappedDataset = wrapSdkModule(datasetModule, 'dataset');
+const wrappedFeatureFlag = wrapSdkModule(featureFlagModule, 'featureFlag');
 
 // Wrap telemetry functions
 const wrappedTelemetry = wrapSdkModule({
@@ -91,6 +95,20 @@ export const getRawPrompt = wrappedPrompt.getRawPrompt;
 // From context
 export const withLucidic = wrappedContext.withLucidic;
 
+// From dataset
+export const getDataset = wrappedDataset.getDataset;
+export const getDatasetItems = wrappedDataset.getDatasetItems;
+
+// From feature flag
+export const getFeatureFlag = wrappedFeatureFlag.getFeatureFlag;
+export const getBoolFlag = wrappedFeatureFlag.getBoolFlag;
+export const getIntFlag = wrappedFeatureFlag.getIntFlag;
+export const getFloatFlag = wrappedFeatureFlag.getFloatFlag;
+export const getStringFlag = wrappedFeatureFlag.getStringFlag;
+export const getJsonFlag = wrappedFeatureFlag.getJsonFlag;
+export const clearFeatureFlagCache = wrappedFeatureFlag.clearFeatureFlagCache;
+export const FeatureFlagError = wrappedFeatureFlag.FeatureFlagError;
+
 // From telemetry
 export const withSession = wrappedTelemetry.withSession;
 export const setActiveSession = wrappedTelemetry.setActiveSession;
@@ -107,6 +125,3 @@ export {
 
 // Export types (these don't need wrapping)
 export * from './client/types';
-
-export * from './sdk/dataset';
-export * from './sdk/featureFlag';
