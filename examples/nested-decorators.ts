@@ -228,7 +228,6 @@ class TestNestedDecorators {
     // Initialize SDK with real backend
     const apiKey = process.env.LUCIDIC_API_KEY;
     const agentId = process.env.LUCIDIC_AGENT_ID;
-    const baseUrl = process.env.LUCIDIC_BASE_URL;
     
     if (!apiKey || !agentId) {
       throw new Error('Missing required environment variables: LUCIDIC_API_KEY and LUCIDIC_AGENT_ID');
@@ -239,7 +238,6 @@ class TestNestedDecorators {
       agentId,
       sessionName: 'Test Nested Decorators',
       instrumentModules: { openai: OpenAI },
-      baseUrl,
     });
     
     console.log(`\x1b[94mSession initialized: ${this.sessionId}\x1b[0m`);

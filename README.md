@@ -23,6 +23,7 @@ npm install lucidicai
 - `LUCIDIC_API_KEY` (required)
 - `LUCIDIC_AGENT_ID` (required)
 - `LUCIDIC_AUTO_END` (optional) defaults to `true`; session auto-ends on shutdown
+- `LUCIDIC_SILENT_MODE` (optional) defaults to `true`; SDK errors are handled internally
 
 ## Quick start
 
@@ -401,6 +402,83 @@ await createExperiment({
 ```
 
 ## Advanced Features
+
+### Error Handling (v2.2.0+)
+
+The SDK includes automatic error handling to prevent SDK errors from crashing your application.
+
+#### Configuration
+
+Error handling is controlled by the `LUCIDIC_SILENT_MODE` environment variable:
+
+- `LUCIDIC_SILENT_MODE=true` (default): SDK errors are caught, logged, and trigger emergency cleanup
+- `LUCIDIC_SILENT_MODE=false`: SDK errors propagate normally to your application
+
+```bash
+# Enable silent mode (default)
+export LUCIDIC_SILENT_MODE=true
+npm start
+
+# Disable for debugging
+export LUCIDIC_SILENT_MODE=false
+npm start
+```
+
+#### Default Behavior
+
+When silent mode is enabled (default):
+
+1. **Errors are caught**: SDK operations won't throw exceptions
+2. **Fallback values returned**: Operations return safe defaults
+3. **Emergency shutdown triggered**: On first error, the SDK:
+   - Flushes pending events (5s timeout)
+   - Ends the active session with `isSuccessful: false`
+   - Prevents further operations
+
+```typescript
+// With LUCIDIC_SILENT_MODE=true (default)
+await init({ sessionName: 'My Session' });
+await createEvent('My Event'); // Returns undefined if network fails, won't crash
+
+// With LUCIDIC_SILENT_MODE=false
+await init({ sessionName: 'My Session' });
+await createEvent('My Event'); // Throws error if network fails
+```
+
+#### Debugging
+
+When debugging SDK issues:
+
+```typescript
+import { isInSilentMode, getErrorHistory } from 'lucidicai';
+
+// Check current mode
+console.log('Silent mode:', isInSilentMode());
+
+// Get error history (only available in silent mode)
+if (isInSilentMode()) {
+  const errors = getErrorHistory();
+  errors.forEach(err => {
+    console.log(`${err.timestamp} - ${err.functionName} failed:`, err.error);
+  });
+}
+```
+
+#### Migration from Earlier Versions
+
+Version 2.2.0+ enables silent mode by default. Your application will continue to work without changes, but SDK errors will no longer propagate.
+
+To maintain previous behavior:
+
+```bash
+export LUCIDIC_SILENT_MODE=false
+```
+
+#### Best Practices
+
+1. **Production**: Keep silent mode enabled (default) for maximum stability
+2. **Development**: Consider disabling for easier debugging
+3. **Testing**: Test with both modes to ensure proper error handling
 
 ### Event Queue Configuration
 
