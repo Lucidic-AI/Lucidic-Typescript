@@ -403,15 +403,15 @@ await createExperiment({
 
 ## Advanced Features
 
-### Error Handling (v2.2.0+)
+### Error Boundary & Recovery (v2.2.0+)
 
-The SDK includes automatic error handling to prevent SDK errors from crashing your application.
+The SDK includes a comprehensive error boundary system that prevents SDK errors from crashing your application while maintaining stateless recovery capabilities.
 
 #### Configuration
 
 Error handling is controlled by the `LUCIDIC_SILENT_MODE` environment variable:
 
-- `LUCIDIC_SILENT_MODE=true` (default): SDK errors are caught, logged, and trigger emergency cleanup
+- `LUCIDIC_SILENT_MODE=true` (default): SDK errors are caught and handled internally
 - `LUCIDIC_SILENT_MODE=false`: SDK errors propagate normally to your application
 
 ```bash
@@ -424,51 +424,115 @@ export LUCIDIC_SILENT_MODE=false
 npm start
 ```
 
-#### Default Behavior
+#### How It Works
 
-When silent mode is enabled (default):
+When silent mode is enabled (default), the SDK employs a stateless error boundary that:
 
-1. **Errors are caught**: SDK operations won't throw exceptions
-2. **Fallback values returned**: Operations return safe defaults
-3. **Emergency shutdown triggered**: On first error, the SDK:
-   - Flushes pending events (5s timeout)
-   - Ends the active session with `isSuccessful: false`
-   - Prevents further operations
+1. **Catches all SDK errors**: Prevents SDK failures from affecting your application
+2. **Returns safe fallback values**: Operations return appropriate defaults based on context
+3. **Performs context-aware cleanup**: Only cleans up resources related to the failed operation
+4. **Allows immediate recovery**: Each operation gets a fresh chance to succeed
+
+##### Stateless Recovery
+
+Unlike traditional error handling that might "poison" the SDK state, the error boundary maintains stateless recovery:
 
 ```typescript
-// With LUCIDIC_SILENT_MODE=true (default)
-await init({ sessionName: 'My Session' });
-await createEvent('My Event'); // Returns undefined if network fails, won't crash
+// First attempt - fails due to invalid credentials
+const experiment1 = await createExperiment({
+  experimentName: 'Test 1',
+  apiKey: 'invalid-key',
+  agentId: 'invalid-agent',
+});
+// Returns: 'fallback-experiment-[timestamp]'
 
-// With LUCIDIC_SILENT_MODE=false
-await init({ sessionName: 'My Session' });
-await createEvent('My Event'); // Throws error if network fails
+// Second attempt - succeeds with valid credentials
+const experiment2 = await createExperiment({
+  experimentName: 'Test 2',
+  apiKey: process.env.LUCIDIC_API_KEY,
+  agentId: process.env.LUCIDIC_AGENT_ID,
+});
+// Returns: actual experiment ID from server
+
+// Both attempts are independent - first failure doesn't affect second
 ```
 
-#### Debugging
+##### Context-Aware Cleanup
 
-When debugging SDK issues:
+The error boundary intelligently determines what cleanup is needed based on the operation type:
+
+- **Session operations**: Emergency session ending with event flushing
+- **Data fetch operations**: No cleanup needed, returns fallback data
+- **Telemetry operations**: Silent failure, no user impact
+- **Utility operations**: Returns safe defaults
+
+##### Error Logging
+
+Errors are logged concisely without stack traces cluttering your console:
+
+```
+[Lucidic][WARN] SDK Error in experiment.createExperiment (data_fetch): Error - 403 {"detail":"Invalid API key"}
+```
+
+Full error details including stack traces are preserved in the error history for debugging.
+
+#### Fallback Values
+
+When errors occur, operations return predictable fallback values:
+
+| Operation Type | Fallback Value |
+|---------------|----------------|
+| `init()` | `'fallback-session-[timestamp]'` |
+| `createExperiment()` | `'fallback-experiment-[timestamp]'` |
+| `createEvent()` | `undefined` |
+| `getDataset()` | `{ items: [], dataset_id: '', name: '', num_items: 0 }` |
+| `getFeatureFlag()` | `{ flag_name: '', flag_value: null }` |
+| `getPrompt()` | `'[Prompt unavailable]'` |
+| Session operations | `undefined` or `void` |
+
+#### Debugging & Monitoring
 
 ```typescript
-import { isInSilentMode, getErrorHistory } from 'lucidicai';
+import { isInSilentMode, getErrorHistory, getEndedSessionCount, resetErrorBoundary } from 'lucidicai';
 
 // Check current mode
 console.log('Silent mode:', isInSilentMode());
 
 // Get error history (only available in silent mode)
-if (isInSilentMode()) {
-  const errors = getErrorHistory();
-  errors.forEach(err => {
-    console.log(`${err.timestamp} - ${err.functionName} failed:`, err.error);
-  });
+const errors = getErrorHistory();
+errors.forEach(err => {
+  console.log(`${err.timestamp} - ${err.moduleName}.${err.functionName} failed:`, err.error);
+});
+
+// Check emergency-ended sessions
+console.log('Emergency-ended sessions:', getEndedSessionCount());
+
+// Reset error boundary state (for testing)
+resetErrorBoundary();
+```
+
+#### Error History
+
+The SDK maintains a rolling history of the last 50 errors for debugging:
+
+```typescript
+interface ErrorContext {
+  functionName: string;
+  moduleName: string;
+  args: any[];
+  error: any;
+  timestamp: Date;
 }
+
+const errorHistory = getErrorHistory();
+// Returns array of ErrorContext objects
 ```
 
 #### Migration from Earlier Versions
 
-Version 2.2.0+ enables silent mode by default. Your application will continue to work without changes, but SDK errors will no longer propagate.
+Version 2.2.0+ enables silent mode by default. Your application will continue to work without changes, but SDK errors will no longer crash your application.
 
-To maintain previous behavior:
+To maintain previous behavior where SDK errors propagate:
 
 ```bash
 export LUCIDIC_SILENT_MODE=false
@@ -477,8 +541,14 @@ export LUCIDIC_SILENT_MODE=false
 #### Best Practices
 
 1. **Production**: Keep silent mode enabled (default) for maximum stability
-2. **Development**: Consider disabling for easier debugging
+2. **Development**: Consider disabling for easier debugging of SDK integration issues
 3. **Testing**: Test with both modes to ensure proper error handling
+4. **Recovery**: Design your application to handle fallback values gracefully
+5. **Monitoring**: Periodically check error history in production to identify issues
+
+#### Examples
+
+See `examples/error-recovery-showcase.ts` and `examples/error-recovery-showcase-simple.ts` for comprehensive demonstrations of the error boundary and recovery capabilities.
 
 ### Event Queue Configuration
 
