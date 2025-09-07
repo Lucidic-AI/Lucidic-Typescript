@@ -3,25 +3,39 @@ import { getHttp, getSessionId, getEventQueue, clearState } from './init';
 import { getActiveSessionFromAls } from '../telemetry/sessionContext';
 import { SessionResource } from '../client/resources/session';
 import { debug, info } from '../util/logger';
+import { getErrorBoundaryInstance } from './error-boundary';
 
 export async function updateSession(params: UpdateSessionParams): Promise<void> {
-  const http = getHttp();
-  const fromAls = getActiveSessionFromAls().sessionId;
-  const sessionId = fromAls ?? getSessionId();
-  if (!sessionId) return;
-  const res = new SessionResource(http);
-  await res.updateSession(sessionId, params);
+    const http = getHttp();
+    const fromAls = getActiveSessionFromAls().sessionId;
+    const sessionId = fromAls ?? getSessionId();
+    if (!sessionId) return;
+    
+    // check if session was emergency-ended
+    if (getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+        debug(`Skipping session update for emergency-ended session ${sessionId}`);
+        return;
+    }
+    
+    const res = new SessionResource(http);
+    await res.updateSession(sessionId, params);
 }
 
 export async function endSession(params: UpdateSessionParams = {}): Promise<void> {
-  const http = getHttp();
-  const fromAls = getActiveSessionFromAls().sessionId;
-  const globalSessionId = getSessionId();
-  const sessionId = fromAls ?? globalSessionId;
-  if (!sessionId) return;
-  
-  // If ending the globally active session, perform cleanup
-  const isGlobalSession = sessionId === globalSessionId;
+    const http = getHttp();
+    const fromAls = getActiveSessionFromAls().sessionId;
+    const globalSessionId = getSessionId();
+    const sessionId = fromAls ?? globalSessionId;
+    if (!sessionId) return;
+    
+    // check if session was already emergency-ended
+    if (getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+        debug(`Session ${sessionId} already emergency-ended, skipping normal end`);
+        return;
+    }
+    
+    // if ending the globally active session, perform cleanup
+    const isGlobalSession = sessionId === globalSessionId;
   
   if (isGlobalSession) {
     // Flush event queue before ending session

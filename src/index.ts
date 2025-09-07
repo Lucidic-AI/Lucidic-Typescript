@@ -14,6 +14,7 @@ import {
 } from './telemetry/sessionContext';
 import * as datasetModule from './sdk/dataset';
 import * as featureFlagModule from './sdk/featureFlag';
+import { info } from './util/logger';
 
 // Import error boundary functions
 import { 
@@ -21,7 +22,8 @@ import {
   isInSilentMode,
   getErrorHistory,
   clearErrorHistory,
-  hasPerformedShutdown,
+  isSessionEmergencyEnded,
+  getErrorBoundaryInstance,
   type ErrorContext
 } from './sdk/error-boundary';
 
@@ -119,8 +121,21 @@ export {
   isInSilentMode,
   getErrorHistory,
   clearErrorHistory,
-  hasPerformedShutdown,
+  isSessionEmergencyEnded,
   type ErrorContext
+};
+
+// reset functionality
+export const resetErrorBoundary = () => {
+  const instance = getErrorBoundaryInstance();
+  instance.clearEndedSessions();
+  instance.clearErrorHistory();
+  info('Error boundary state reset');
+};
+
+// get count of ended sessions (for monitoring)
+export const getEndedSessionCount = () => {
+  return getErrorBoundaryInstance().getEndedSessionCount();
 };
 
 // Export types (these don't need wrapping)
