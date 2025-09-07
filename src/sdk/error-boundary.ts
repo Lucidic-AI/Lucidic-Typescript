@@ -231,7 +231,9 @@ class SdkErrorBoundary {
             'hasHttp',
             'getAgentIdSafe',
             'getDecoratorContext',
-            'getActiveSessionFromAls'
+            'getActiveSessionFromAls',
+            // decorator functions need special handling - they return functions
+            'event'
         ];
         
         return skipList.includes(fnName);
@@ -261,15 +263,20 @@ class SdkErrorBoundary {
     }
 
     private logError(context: ErrorContext, operationType: OperationType): void {
-        // use appropriate log level based on operation type
-        const message = `SDK Error in ${context.moduleName}.${context.functionName} (${operationType})`;
+        // extract error details without stack trace
+        const error = context.error;
+        const errorType = error?.constructor?.name || 'Error';
+        const errorMessage = (error as any)?.message || String(error);
+        
+        // format concise message with error type and message
+        const message = `SDK Error in ${context.moduleName}.${context.functionName} (${operationType}): ${errorType} - ${errorMessage}`;
         
         // only log if debug/verbose mode is enabled (controlled by logger module)
         if (operationType === OperationType.TELEMETRY || 
             operationType === OperationType.UTILITY) {
-            debug(message, context.error);
+            debug(message);  // no error object passed, just the formatted message
         } else {
-            warn(message, context.error);
+            warn(message);   // no error object passed, just the formatted message
         }
     }
 

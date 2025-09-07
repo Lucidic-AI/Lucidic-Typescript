@@ -1,6 +1,6 @@
 import { EventType } from '../client/types';
 import { EventResource } from '../client/resources/event';
-import { debug, error as logError } from '../util/logger';
+import { debug } from '../util/logger';
 import { gzip } from 'zlib';
 import { promisify } from 'util';
 
@@ -50,7 +50,8 @@ export class EventQueue {
       return '';
     }
     if (this.queue.length >= this.maxQueueSize) {
-      logError(`Event queue at max size ${this.maxQueueSize}, dropping event`);
+      // silently drop event when queue is full - error boundary will handle if needed
+      debug(`Event queue at max size ${this.maxQueueSize}, dropping event`);
       return '';
     }
     this.queue.push(params);
@@ -124,7 +125,8 @@ export class EventQueue {
       this.sentEventIds.add(event.clientEventId);
       debug(`Event ${event.clientEventId} sent successfully`);
     } catch (err) {
-      logError(`Failed to send event ${event.clientEventId}:`, err);
+      // let error boundary handle logging, just track retries
+      debug(`Failed to send event ${event.clientEventId}`);
       event.retries++;
       if (event.retries < 3) {
         this.queue.push(event);
