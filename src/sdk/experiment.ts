@@ -1,7 +1,7 @@
 import { CreateExperimentParams } from '../client/types';
 import { ExperimentResource } from '../client/resources/experiment';
 import { getOrCreateHttp, getAgentIdSafe } from './init';
-import { info, error as logError } from '../util/logger';
+import { info } from '../util/logger';
 import dotenv from 'dotenv';
 
 /**
@@ -55,7 +55,7 @@ export async function createExperiment(params: CreateExperimentParams): Promise<
     info(`Created experiment '${params.experimentName}' with ID: ${response.experiment_id}`);
     return response.experiment_id;
   } catch (err) {
-    logError('Failed to create experiment:', err);
+    // error boundary will handle logging
     throw err;
   }
 }
