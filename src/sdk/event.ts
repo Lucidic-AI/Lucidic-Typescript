@@ -8,6 +8,7 @@ import { getSessionId, getEventQueue } from './init';
 import { getDecoratorContext } from './decorators';
 import { EventBuilder } from './event-builder';
 import { debug } from '../util/logger';
+import { getErrorBoundaryInstance } from './error-boundary';
 import * as crypto from 'crypto';
 
 // Type guard helpers removed; flexible parameter system handles mapping
@@ -29,6 +30,13 @@ export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg
   // Use provided sessionId or fall back to global
   const sessionId = flexibleParams.sessionId || getSessionId();
   if (!sessionId) return;
+  
+  // Check if session was emergency-ended
+  if (getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+    debug(`Skipping event creation for emergency-ended session ${sessionId}`);
+    return undefined;
+  }
+  
   const eventQueue = getEventQueue();
   if (!eventQueue) return;
 
@@ -79,18 +87,44 @@ export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg
   return clientEventId || undefined;
 }
 
-export async function endEvent(_eventId: string): Promise<void> {}
+export async function endEvent(_eventId: string): Promise<void> {
+    const sessionId = getSessionId();
+    
+    // Check if session was emergency-ended
+    if (sessionId && getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+        debug(`Skipping event end for emergency-ended session ${sessionId}`);
+        return;
+    }
+    
+    // Current implementation is a stub
+}
 
 export async function flush(): Promise<void> {
-  const eventQueue = getEventQueue();
-  if (eventQueue) {
-    return eventQueue.flush();
-  }
+    const sessionId = getSessionId();
+    
+    // Check if session was emergency-ended
+    if (sessionId && getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+        debug(`Skipping flush for emergency-ended session ${sessionId}`);
+        return;
+    }
+    
+    const eventQueue = getEventQueue();
+    if (eventQueue) {
+        return eventQueue.flush();
+    }
 }
 
 export async function forceFlush(): Promise<void> {
-  const eventQueue = getEventQueue();
-  if (eventQueue) {
-    return eventQueue.forceFlush();
-  }
+    const sessionId = getSessionId();
+    
+    // Check if session was emergency-ended
+    if (sessionId && getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {
+        debug(`Skipping force flush for emergency-ended session ${sessionId}`);
+        return;
+    }
+    
+    const eventQueue = getEventQueue();
+    if (eventQueue) {
+        return eventQueue.forceFlush();
+    }
 }
