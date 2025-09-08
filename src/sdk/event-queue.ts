@@ -31,17 +31,25 @@ export class EventQueue {
   private readonly flushIntervalMs: number;
   private readonly flushAtCount: number;
   private readonly blobThreshold: number;
+  
+  // parallel processing configuration
+  private readonly batchSize: number;
+  private readonly maxConcurrency: number;
+  private readonly maxRetries = 3; // fixed, not configurable
 
-  private sentEventIds = new Set<string>();
   private eventResource: EventResource;
 
   constructor(eventResource: EventResource) {
     this.eventResource = eventResource;
-    // Evaluate environment variables at construction time
+    // evaluate environment variables at construction time
     this.maxQueueSize = Number(process.env.LUCIDIC_MAX_QUEUE_SIZE) || 100_000;
     this.flushIntervalMs = Number(process.env.LUCIDIC_FLUSH_INTERVAL) || 100;
     this.flushAtCount = Number(process.env.LUCIDIC_FLUSH_AT) || 100;
     this.blobThreshold = Number(process.env.LUCIDIC_BLOB_THRESHOLD) || 64 * 1024;
+    
+    // parallel processing configuration
+    this.batchSize = Number(process.env.LUCIDIC_BATCH_SIZE) || 20;
+    this.maxConcurrency = Number(process.env.LUCIDIC_MAX_CONCURRENCY) || 10;
   }
 
   queueEvent(params: QueuedEvent): string {
@@ -79,33 +87,86 @@ export class EventQueue {
   private async processQueue() {
     if (this.processing) return;
     this.processing = true;
+    
     try {
       while (this.queue.length > 0) {
-        const nextIndex = this.queue.findIndex(e => !e.parentClientEventId || this.sentEventIds.has(e.parentClientEventId));
-        if (nextIndex === -1) {
-          debug('All queued events waiting for parents, will retry later');
-          break;
+        // take a batch of events from the front of the queue
+        const batch = this.queue.splice(0, Math.min(this.batchSize, this.queue.length));
+        
+        debug(`Processing batch of ${batch.length} events`);
+        
+        // process entire batch in parallel using Promise.allSettled
+        // this ensures all promises complete (success or failure) before continuing
+        const results = await Promise.allSettled(
+          batch.map(event => this.sendEvent(event))
+        );
+        
+        // process results to handle retries
+        const failedEvents: QueuedEvent[] = [];
+        let successCount = 0;
+        let permanentlyFailedCount = 0;
+        
+        results.forEach((result, index) => {
+          const event = batch[index];
+          
+          if (result.status === 'fulfilled') {
+            // event was successfully sent
+            successCount++;
+            debug(`Event ${event.clientEventId} sent successfully`);
+          } else {
+            // event failed to send
+            const error = result.reason;
+            debug(`Event ${event.clientEventId} failed: ${error?.message || error}`);
+            
+            if (event.retries < this.maxRetries) {
+              // still has retries left
+              event.retries++;
+              failedEvents.push(event);
+              debug(`Event ${event.clientEventId} will retry (attempt ${event.retries + 1}/${this.maxRetries + 1})`);
+            } else {
+              // max retries reached, permanently drop this event
+              permanentlyFailedCount++;
+              // concise logging for permanently failed events
+              debug(`Event ${event.clientEventId} dropped after ${this.maxRetries + 1} attempts`);
+            }
+          }
+        });
+        
+        // log batch summary if there's anything interesting
+        if (failedEvents.length > 0 || permanentlyFailedCount > 0) {
+          debug(`Batch complete: ${successCount} sent, ${failedEvents.length} retrying, ${permanentlyFailedCount} dropped`);
         }
-        const event = this.queue.splice(nextIndex, 1)[0];
-        await this.sendEvent(event);
+        
+        // re-queue failed events at the front for immediate retry
+        if (failedEvents.length > 0) {
+          this.queue.unshift(...failedEvents);
+          debug(`Re-queued ${failedEvents.length} events for retry`);
+        }
       }
     } finally {
       this.processing = false;
-      if (this.queue.length > 0) this.scheduleFlush();
+      // schedule next flush if there are still events (from retries)
+      if (this.queue.length > 0) {
+        this.scheduleFlush();
+      }
     }
   }
 
   private async sendEvent(event: QueuedEvent) {
     try {
+      // prepare payload and check size
       const payloadStr = JSON.stringify(event.payload, null, 0);
       const payloadSize = Buffer.byteLength(payloadStr, 'utf-8');
       let finalPayload = event.payload;
       let needsBlob = false;
+      
       if (payloadSize > this.blobThreshold) {
         needsBlob = true;
         finalPayload = this.generatePreview(event.type, event.payload);
         debug(`Event ${event.clientEventId} needs blob storage (${payloadSize} bytes)`);
       }
+      
+      // send event to backend
       const resp = await this.eventResource.createEvent({
         client_event_id: event.clientEventId,
         client_parent_event_id: event.parentClientEventId,
@@ -118,20 +179,20 @@ export class EventQueue {
         payload: finalPayload,
         needs_blob: needsBlob,
       });
+      
+      // IMPORTANT: blob upload remains sequential within each event
+      // this ensures reliability and proper error handling for large payloads
       if (needsBlob && resp?.blob_url) {
         await this.uploadBlob(resp.blob_url, event.payload);
         debug(`Blob uploaded for event ${event.clientEventId}`);
       }
-      this.sentEventIds.add(event.clientEventId);
+      
       debug(`Event ${event.clientEventId} sent successfully`);
     } catch (err) {
-      // let error boundary handle logging, just track retries
+      // let error bubble up for Promise.allSettled to catch
+      // don't log full error here to avoid duplicate logging
       debug(`Failed to send event ${event.clientEventId}`);
-      event.retries++;
-      if (event.retries < 3) {
-        this.queue.push(event);
-        debug(`Re-queued event ${event.clientEventId} for retry ${event.retries}`);
-      }
+      throw err; // re-throw for Promise.allSettled to handle
     }
   }
 
@@ -190,16 +251,18 @@ export class EventQueue {
   }
 
   async flush(): Promise<void> {
+    // clear any pending flush timer
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
+    
+    // process all queued events using parallel processing
     while (this.queue.length > 0) {
       await this.processQueue();
-      if (this.queue.length > 0) {
-        const orphans = this.queue.splice(0, this.queue.length);
-        for (const ev of orphans) { await this.sendEvent(ev); }
-      }
+      
+      // no need for special orphan handling since we don't have dependencies
+      // all events are independent and can be processed in any order
     }
   }
 
