@@ -561,6 +561,33 @@ Configure the event queue behavior via environment variables:
 
 Large payloads exceeding the blob threshold are automatically uploaded to S3 with gzip compression.
 
+### Parallel Event Processing (v2.3.0+)
+
+The SDK processes events in parallel for optimal performance:
+
+- **Parallel Batching**: Multiple events are sent concurrently using `Promise.allSettled()`
+- **Configurable Concurrency**: Control the number of events processed in parallel
+- **Automatic Retry**: Failed events are retried up to 3 times before being dropped
+- **Independent Events**: Events are processed without dependency constraints
+
+Configuration via environment variables:
+- `LUCIDIC_BATCH_SIZE`: Number of events to process in parallel per batch (default: 20)
+- `LUCIDIC_MAX_CONCURRENCY`: Maximum concurrent requests (default: 10)
+
+Example:
+```bash
+# Process up to 50 events in parallel
+export LUCIDIC_BATCH_SIZE=50
+export LUCIDIC_MAX_CONCURRENCY=25
+npm start
+```
+
+Performance improvements:
+- 10-20x faster event flushing compared to sequential processing
+- Reduced application shutdown time
+- Better utilization of available network bandwidth
+- Lower latency for event delivery to backend
+
 ### Custom Masking
 
 Protect sensitive data with a custom masking function:
