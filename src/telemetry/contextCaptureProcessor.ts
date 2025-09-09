@@ -12,6 +12,7 @@ import type { SpanProcessor, ReadableSpan, Span } from '@opentelemetry/sdk-trace
 import type { Context } from '@opentelemetry/api';
 import { getActiveSessionFromAls } from './sessionContext';
 import { getDecoratorContext } from '../sdk/decorators';
+import { getSessionId } from '../sdk/init';
 import { debug } from '../util/logger';
 
 export class ContextCaptureProcessor implements SpanProcessor {
@@ -20,8 +21,10 @@ export class ContextCaptureProcessor implements SpanProcessor {
    */
   onStart(span: Span, _parentContext: Context): void {
     try {
-      // Capture session ID from context
-      const { sessionId } = getActiveSessionFromAls();
+      // Capture session ID from ALS context first, then fall back to global
+      const alsStore = getActiveSessionFromAls();
+      const sessionId = alsStore.sessionId || getSessionId();
+      
       if (sessionId) {
         span.setAttribute('lucidic.session_id', sessionId);
       }

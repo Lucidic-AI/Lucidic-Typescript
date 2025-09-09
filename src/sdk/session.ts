@@ -1,9 +1,10 @@
 import { UpdateSessionParams } from '../client/types';
-import { getHttp, getSessionId, getEventQueue, clearState } from './init';
+import { getHttp, getSessionId, clearState } from './init';
 import { getActiveSessionFromAls } from '../telemetry/sessionContext';
 import { SessionResource } from '../client/resources/session';
 import { debug, info } from '../util/logger';
 import { getErrorBoundaryInstance } from './error-boundary';
+import { shutdownManager } from './shutdown-manager';
 
 export async function updateSession(params: UpdateSessionParams): Promise<void> {
     const http = getHttp();
@@ -37,35 +38,16 @@ export async function endSession(params: UpdateSessionParams = {}): Promise<void
     // if ending the globally active session, perform cleanup
     const isGlobalSession = sessionId === globalSessionId;
   
-  if (isGlobalSession) {
-    // Flush event queue before ending session
-    const eventQueue = getEventQueue();
-    if (eventQueue) {
-      try {
-        debug('Flushing event queue before ending session');
-        await eventQueue.forceFlush();
-      } catch (e) {
-        debug('Error flushing event queue before end session:', e);
-      }
-    }
-  }
-  
   // Send the end session request
   const res = new SessionResource(http);
   await res.endSession(sessionId, params);
   
+  // Unregister from shutdown manager
+  shutdownManager.unregisterSession(sessionId);
+  info(`Session ${sessionId} ended and unregistered from shutdown manager`);
+  
   if (isGlobalSession) {
-    // Shutdown event queue after ending session
-    const eventQueue = getEventQueue();
-    if (eventQueue) {
-      try {
-        await eventQueue.shutdown();
-      } catch (e) {
-        debug('Error shutting down event queue after end session:', e);
-      }
-    }
-    
-    // Clear global state
+    // Clear global state (but keep event queue running for future sessions)
     clearState();
   }
 }

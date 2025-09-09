@@ -8,9 +8,7 @@ import * as experimentModule from './sdk/experiment';
 import * as promptModule from './sdk/prompt';
 import * as contextModule from './sdk/context';
 import { 
-  withSession as _withSession, 
-  setActiveSession as _setActiveSession, 
-  clearActiveSession as _clearActiveSession 
+  withSession as _withSession
 } from './telemetry/sessionContext';
 import * as datasetModule from './sdk/dataset';
 import * as featureFlagModule from './sdk/featureFlag';
@@ -42,9 +40,7 @@ const wrappedFeatureFlag = wrapSdkModule(featureFlagModule, 'featureFlag');
 
 // Wrap telemetry functions
 const wrappedTelemetry = wrapSdkModule({
-  withSession: _withSession,
-  setActiveSession: _setActiveSession,
-  clearActiveSession: _clearActiveSession
+  withSession: _withSession
 }, 'telemetry');
 
 // Re-export all wrapped functions
@@ -113,8 +109,6 @@ export const FeatureFlagError = wrappedFeatureFlag.FeatureFlagError;
 
 // From telemetry
 export const withSession = wrappedTelemetry.withSession;
-export const setActiveSession = wrappedTelemetry.setActiveSession;
-export const clearActiveSession = wrappedTelemetry.clearActiveSession;
 
 // Export error boundary utilities
 export {
