@@ -1,7 +1,7 @@
 import { init } from './init';
 import { endSession } from './session';
 import type { InitParams } from '../client/types';
-import { withSession, clearActiveSession } from '../telemetry/sessionContext';
+import { withSession } from '../telemetry/sessionContext';
 import { debug } from '../util/logger';
 
 /**
@@ -22,11 +22,7 @@ export async function withLucidic<T>(params: InitParams, fn: () => Promise<T> | 
     try {
       return await fn();
     } finally {
-      try {
-        await endSession({});
-      } finally {
-        clearActiveSession();
-      }
+      await endSession({});
     }
   });
 }

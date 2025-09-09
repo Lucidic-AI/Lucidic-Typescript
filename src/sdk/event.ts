@@ -29,7 +29,10 @@ export function createEvent(arg1?: string | EventType | FlexibleEventParams, arg
 
   // Use provided sessionId or fall back to global
   const sessionId = flexibleParams.sessionId || getSessionId();
-  if (!sessionId) return;
+  if (!sessionId) {
+    debug('No sessionId available for event creation');
+    return;
+  }
   
   // Check if session was emergency-ended
   if (getErrorBoundaryInstance().isSessionEmergencyEnded(sessionId)) {

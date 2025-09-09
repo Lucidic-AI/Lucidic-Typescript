@@ -10,6 +10,7 @@ import type { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
 import { info, debug, error as logError } from '../util/logger';
 import { toJsonSafe, mapJsonStrings } from '../util/serialization';
 import { isInSilentMode } from './error-boundary';
+import { shutdownManager } from './shutdown-manager';
 import dotenv from 'dotenv';
 
 type State = {
@@ -22,6 +23,7 @@ type State = {
   isShuttingDown?: boolean;
   provider?: NodeTracerProvider | null;
   eventQueue?: EventQueue | null;
+  autoEnd?: boolean;  // track autoEnd for shutdown manager
 };
 
 const state: State = {
@@ -34,7 +36,7 @@ const state: State = {
 
 const MAX_ERROR_DESCRIPTION_LENGTH = 16384;
 
-async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<never> {
+export async function handleFatalUncaught(err: unknown, exitCode: number = 1): Promise<never> {
   // Idempotent guard across all shutdown paths
   if (state.isShuttingDown) {
     process.exit(exitCode);
@@ -179,6 +181,23 @@ export function getOrCreateHttp(apiKey: string, agentId: string): HttpClient {
 }
 
 /**
+ * Get or create an event queue, reusing existing queue across sessions
+ */
+function getOrCreateEventQueue(http: HttpClient): EventQueue {
+  // Reuse existing queue if it exists - this ensures events from previous
+  // sessions are not lost when a new session starts
+  if (state.eventQueue) {
+    debug('Reusing existing event queue');
+    return state.eventQueue;
+  }
+  
+  // Create only on first init
+  state.eventQueue = new EventQueue(new EventResource(http));
+  info('Event queue created (will be reused for all sessions)');
+  return state.eventQueue;
+}
+
+/**
  * Check if HTTP client exists (without throwing)
  */
 export function hasHttp(): boolean {
@@ -219,8 +238,8 @@ export async function init(params: InitParams = {}): Promise<string> {
   state.masking = params.maskingFunction;
   state.prompt = new PromptResource(http, agentId);
 
-  // Initialize event queue with POST-only event resource
-  state.eventQueue = new EventQueue(new EventResource(http));
+  // Get or create event queue - reuses existing queue across sessions
+  state.eventQueue = getOrCreateEventQueue(http);
 
   // Telemetry
   const providers = (params.providers ?? []) as ProviderType[];
@@ -236,64 +255,24 @@ export async function init(params: InitParams = {}): Promise<string> {
   state.provider = provider;
   info('Telemetry wired (non-global provider).');
 
-  // Auto-end on exit/signals
+  // register session with shutdown manager
   const autoEnd = params.autoEnd ?? (process.env.LUCIDIC_AUTO_END ?? 'True').toLowerCase() === 'true';
-  if (autoEnd) {
-    const handler = async () => {
-      if (state.isShuttingDown) return;
-      state.isShuttingDown = true;
-      try {
-        info('Flushing events and auto-ending session on shutdown...');
-        try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (auto-end)', e); }
-        await import('./session.js').then(m => m.endSession({}));
-        // Note: endSession now handles queue shutdown for global sessions
-        // Ensure any batched spans are exported before process exits
-        if (state.provider) {
-          try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error', e); }
-          try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error', e); }
-        }
-      } catch (e) {
-        debug('Auto-end error', e);
-      }
-    };
-    // Use beforeExit so async endSession can run
-    process.on('beforeExit', () => { void handler(); });
-    // For signals, await then exit
-    process.on('SIGINT', () => { handler().finally(() => process.exit(0)); });
-    process.on('SIGTERM', () => { handler().finally(() => process.exit(0)); });
-  }
-
-  // Always flush on process exit, even when autoEnd is disabled
-  // 1) beforeExit: best-effort flush (no shutdown, process may continue scheduling work)
-  process.on('beforeExit', async () => {
-    if (state.provider) {
-      try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (beforeExit)', e); }
-    }
+  state.autoEnd = autoEnd;
+  
+  // register with shutdown manager - create a snapshot of current state for this session
+  // IMPORTANT: must create a copy to avoid all sessions sharing the same state object
+  shutdownManager.registerSession(session_id, {
+    sessionId: session_id,
+    agentId: state.agentId || undefined,
+    http: state.http || undefined,
+    eventQueue: state.eventQueue || undefined,
+    provider: state.provider || undefined,
+    autoEnd: state.autoEnd,
+    isShuttingDown: false,
   });
-
-  // 2) On signals: if autoEnd didn't run, flush and shutdown before exiting
-  const flushAndExit = async () => {
-    if (state.isShuttingDown) return;
-    state.isShuttingDown = true;
-    try {
-      try { await state.eventQueue?.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
-      try { await state.eventQueue?.shutdown(); } catch (e) { debug('queue shutdown error (signal)', e); }
-      if (state.provider) {
-        try { await state.provider.forceFlush(); } catch (e) { debug('forceFlush error (signal)', e); }
-        try { await state.provider.shutdown(); } catch (e) { debug('provider shutdown error (signal)', e); }
-      }
-    } finally {
-      process.exit(0);
-    }
-  };
-  process.on('SIGINT', () => { if (!autoEnd) { void flushAndExit(); } });
-  process.on('SIGTERM', () => { if (!autoEnd) { void flushAndExit(); } });
-
-  // Crash capture: handle uncaught exceptions (on by default; not env-controlled)
-  const captureUncaught = params.captureUncaught ?? true;
-  if (captureUncaught) {
-    process.on('uncaughtException', (err) => { void handleFatalUncaught(err, 1); });
-  }
+  
+  // no need for individual process.on() handlers - all handled by ShutdownManager
+  // the ShutdownManager singleton ensures listeners are only registered once
 
   return session_id;
 }
@@ -332,5 +311,6 @@ export function clearState(): void {
   state.sessionId = null;
   // Note: We keep http, agentId, prompt, and provider for potential reuse
   // Only clear session-specific state
+  // ALS context is cleared separately in session.ts
 }
 

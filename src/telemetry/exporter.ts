@@ -3,7 +3,6 @@ import { SpanStatusCode } from '@opentelemetry/api';
 
 import { extractPrompts, extractCompletions, extractImages, detectIsLlmSpan, extractModel } from './extract.js';
 import { calculateCostUSD } from './pricing.js';
-import { getSessionId } from '../sdk/init.js';
 import { createEvent } from '../sdk/event.js';
 import { getDecoratorContext } from '../sdk/decorators.js';
 import { debug } from '../util/logger.js';
@@ -22,9 +21,12 @@ export class LucidicSpanExporter implements SpanExporter {
 
         debug('Exporter processing span', { name: span.name, attrs });
         const stampedSessionId = attrs['lucidic.session_id'] as string | undefined;
-        const sessionId = stampedSessionId ?? getSessionId();
-        debug('Span routing decision', { name: span.name, used: stampedSessionId ? 'stamped' : 'global', sessionId });
-        if (!sessionId) continue;
+        const sessionId = stampedSessionId;  // Only use stamped sessionId, no fallback
+        if (!sessionId) {
+          debug('Skipping span without sessionId', { name: span.name });
+          continue;  // Skip spans without proper session context
+        }
+        debug('Span routing decision', { name: span.name, sessionId });
 
         // Get parent event ID from span attributes (captured at span creation) or fallback to decorator context
         const capturedParentId = attrs['lucidic.parent_event_id'] as string | undefined;

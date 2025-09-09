@@ -90,57 +90,69 @@ export class EventQueue {
     
     try {
       while (this.queue.length > 0) {
-        // take a batch of events from the front of the queue
-        const batch = this.queue.splice(0, Math.min(this.batchSize, this.queue.length));
+        // process multiple batches in parallel up to maxConcurrency
+        const batches: QueuedEvent[][] = [];
+        const totalToProcess = Math.min(this.maxConcurrency * this.batchSize, this.queue.length);
         
-        debug(`Processing batch of ${batch.length} events`);
-        
-        // process entire batch in parallel using Promise.allSettled
-        // this ensures all promises complete (success or failure) before continuing
-        const results = await Promise.allSettled(
-          batch.map(event => this.sendEvent(event))
-        );
-        
-        // process results to handle retries
-        const failedEvents: QueuedEvent[] = [];
-        let successCount = 0;
-        let permanentlyFailedCount = 0;
-        
-        results.forEach((result, index) => {
-          const event = batch[index];
-          
-          if (result.status === 'fulfilled') {
-            // event was successfully sent
-            successCount++;
-            debug(`Event ${event.clientEventId} sent successfully`);
-          } else {
-            // event failed to send
-            const error = result.reason;
-            debug(`Event ${event.clientEventId} failed: ${error?.message || error}`);
-            
-            if (event.retries < this.maxRetries) {
-              // still has retries left
-              event.retries++;
-              failedEvents.push(event);
-              debug(`Event ${event.clientEventId} will retry (attempt ${event.retries + 1}/${this.maxRetries + 1})`);
-            } else {
-              // max retries reached, permanently drop this event
-              permanentlyFailedCount++;
-              // concise logging for permanently failed events
-              debug(`Event ${event.clientEventId} dropped after ${this.maxRetries + 1} attempts`);
-            }
-          }
-        });
-        
-        // log batch summary if there's anything interesting
-        if (failedEvents.length > 0 || permanentlyFailedCount > 0) {
-          debug(`Batch complete: ${successCount} sent, ${failedEvents.length} retrying, ${permanentlyFailedCount} dropped`);
+        // create batches
+        while (batches.length < this.maxConcurrency && this.queue.length > 0) {
+          const batchSize = Math.min(this.batchSize, this.queue.length);
+          if (batchSize === 0) break;
+          batches.push(this.queue.splice(0, batchSize));
         }
         
-        // re-queue failed events at the front for immediate retry
-        if (failedEvents.length > 0) {
-          this.queue.unshift(...failedEvents);
-          debug(`Re-queued ${failedEvents.length} events for retry`);
+        debug(`Processing ${batches.length} batches with total ${totalToProcess} events`);
+        
+        // process all batches in parallel
+        const allResults = await Promise.allSettled(
+          batches.flatMap(batch => batch.map(event => this.sendEvent(event)))
+        );
+        
+        // reconstruct batch structure for result processing
+        let resultIndex = 0;
+        for (const batch of batches) {
+          const results = allResults.slice(resultIndex, resultIndex + batch.length);
+          resultIndex += batch.length;
+          
+          // process results to handle retries
+          const failedEvents: QueuedEvent[] = [];
+          let successCount = 0;
+          let permanentlyFailedCount = 0;
+          
+          results.forEach((result, index) => {
+            const event = batch[index];
+            
+            if (result.status === 'fulfilled') {
+              // event was successfully sent
+              successCount++;
+            } else {
+              // event failed to send
+              const error = result.reason;
+              debug(`Event ${event.clientEventId} failed: ${error?.message || error}`);
+              
+              if (event.retries < this.maxRetries) {
+                // still has retries left
+                event.retries++;
+                failedEvents.push(event);
+                debug(`Event ${event.clientEventId} will retry (attempt ${event.retries + 1}/${this.maxRetries + 1})`);
+              } else {
+                // max retries reached, permanently drop this event
+                permanentlyFailedCount++;
+                // concise logging for permanently failed events
+                debug(`Event ${event.clientEventId} dropped after ${this.maxRetries + 1} attempts`);
+              }
+            }
+          });
+          
+          // log batch summary if there's anything interesting
+          if (failedEvents.length > 0 || permanentlyFailedCount > 0) {
+            debug(`Batch complete: ${successCount} sent, ${failedEvents.length} retrying, ${permanentlyFailedCount} dropped`);
+          }
+          
+          // re-queue failed events at the front for immediate retry
+          if (failedEvents.length > 0) {
+            this.queue.unshift(...failedEvents);
+          }
         }
       }
     } finally {
@@ -258,11 +270,17 @@ export class EventQueue {
     }
     
     // process all queued events using parallel processing
-    while (this.queue.length > 0) {
+    // add maximum attempts to prevent infinite loop when backend is down
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (this.queue.length > 0 && attempts < maxAttempts) {
       await this.processQueue();
-      
-      // no need for special orphan handling since we don't have dependencies
-      // all events are independent and can be processed in any order
+      attempts++;
+    }
+    
+    if (this.queue.length > 0) {
+      debug(`Flush incomplete: ${this.queue.length} events remaining after ${attempts} attempts`);
     }
   }
 
